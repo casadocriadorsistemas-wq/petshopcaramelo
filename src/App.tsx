@@ -129,7 +129,7 @@ export default function App() {
   // On mount: test connection, seed if empty, attach subscriptions
   useEffect(() => {
     testConnection();
-    seedInitialDataIfNeeded();
+    //seedInitialDataIfNeeded();
 
     const unsubProducts = subscribeProducts(setProducts);
     const unsubCategories = subscribeCategories(setCategories);
