@@ -533,7 +533,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 { id: 'coupons', label: 'Cupons de Desconto', icon: <Tag className="w-4 h-4" /> },
                 { id: 'settings', label: 'Horários & Loja', icon: <Clock className="w-4 h-4" /> },
                 { id: 'orders', label: 'Pedidos Recebidos', icon: <ShoppingBag className="w-4 h-4" /> },
-                { id: 'database', label: 'Banco de Dados', icon: <Database className="w-4 h-4" /> },
               ].map((tab) => (
                 <button
                   key={tab.id}
