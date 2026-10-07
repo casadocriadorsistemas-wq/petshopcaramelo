@@ -11,7 +11,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Product, Category, Coupon, StoreSettings, OrderRecord, CartItem, SystemSubscription } from '../types';
-import { DEFAULT_PRODUCTS, DEFAULT_CATEGORIES, DEFAULT_COUPONS, DEFAULT_SETTINGS, DEFAULT_SUBSCRIPTION } from '../data/defaultData';
+import { DEFAULT_CATEGORIES, DEFAULT_COUPONS, DEFAULT_SETTINGS, DEFAULT_SUBSCRIPTION } from '../data/defaultData';
 
 const LOCAL_PRODUCTS_KEY = 'pet_store_products_v1';
 const LOCAL_CATEGORIES_KEY = 'pet_store_categories_v1';
@@ -23,7 +23,8 @@ const SEED_LOCK_KEY = 'pet_store_seeded_lock_v1';
 
 let isSeedingInProgress = false;
 
-// Seed initial data to Firestore cleanly using writeBatch to avoid multiple snapshot events
+// Seed initial setup to Firestore (categories, settings and coupons if empty).
+// NOTE: We NEVER seed fictitious/mock products into Firestore. If empty, it stays blank as requested.
 export async function seedInitialDataIfNeeded(): Promise<void> {
   if (isSeedingInProgress) return;
   
@@ -39,12 +40,10 @@ export async function seedInitialDataIfNeeded(): Promise<void> {
       localStorage.setItem(LOCAL_CATEGORIES_KEY, JSON.stringify(DEFAULT_CATEGORIES));
     }
 
-    const productsSnap = await getDocs(collection(db, 'products'));
-    if (productsSnap.empty) {
+    // Check settings & coupons without adding any fictitious products
+    const settingsSnap = await getDoc(doc(db, 'settings', 'config'));
+    if (!settingsSnap.exists()) {
       const batch = writeBatch(db);
-      for (const prod of DEFAULT_PRODUCTS) {
-        batch.set(doc(db, 'products', prod.id), prod);
-      }
       for (const coup of DEFAULT_COUPONS) {
         batch.set(doc(db, 'coupons', coup.id), coup);
       }
@@ -62,7 +61,7 @@ export async function seedInitialDataIfNeeded(): Promise<void> {
 // Active In-Memory Listeners for Instant UI updates
 const productListeners = new Set<(products: Product[]) => void>();
 const categoryListeners = new Set<(categories: Category[]) => void>();
-const couponListeners = new Set<(coupons: Coupon[]) => void>();
+const couponListeners = new Set<(coupon: Coupon[]) => void>();
 
 function notifyProductListeners(products: Product[]) {
   productListeners.forEach((cb) => {
@@ -82,7 +81,7 @@ function notifyCouponListeners(coupons: Coupon[]) {
   });
 }
 
-// Subscribe to Products with change detection to prevent re-render flickering
+// Subscribe to Products with change detection: keeps data blank if database has no products
 export function subscribeProducts(callback: (products: Product[]) => void): () => void {
   productListeners.add(callback);
   let lastJson = '';
@@ -92,26 +91,31 @@ export function subscribeProducts(callback: (products: Product[]) => void): () =
     try {
       lastJson = cached;
       callback(JSON.parse(cached));
-    } catch {}
+    } catch {
+      lastJson = JSON.stringify([]);
+      callback([]);
+    }
   } else {
-    lastJson = JSON.stringify(DEFAULT_PRODUCTS);
-    callback(DEFAULT_PRODUCTS);
+    // When no cache exists, default to empty blank list []
+    lastJson = JSON.stringify([]);
+    callback([]);
   }
 
   let firestoreUnsub = () => {};
   try {
     firestoreUnsub = onSnapshot(collection(db, 'products'), (snapshot) => {
+      const prods: Product[] = [];
       if (!snapshot.empty) {
-        const prods: Product[] = [];
         snapshot.forEach((d) => {
           prods.push(d.data() as Product);
         });
-        const newJson = JSON.stringify(prods);
-        if (newJson !== lastJson) {
-          lastJson = newJson;
-          localStorage.setItem(LOCAL_PRODUCTS_KEY, newJson);
-          callback(prods);
-        }
+      }
+      // When snapshot is empty, prods is [] and accurately clears the screen and cache
+      const newJson = JSON.stringify(prods);
+      if (newJson !== lastJson) {
+        lastJson = newJson;
+        localStorage.setItem(LOCAL_PRODUCTS_KEY, newJson);
+        notifyProductListeners(prods);
       }
     }, (error) => {
       console.warn('Products listener note:', error.message);
@@ -124,9 +128,30 @@ export function subscribeProducts(callback: (products: Product[]) => void): () =
   };
 }
 
+export function sanitizeForFirestore<T>(obj: T): T {
+  if (obj === null || obj === undefined) {
+    return null as any;
+  }
+  if (Array.isArray(obj)) {
+    return obj
+      .map(item => sanitizeForFirestore(item))
+      .filter(item => item !== undefined) as any;
+  }
+  if (typeof obj === 'object') {
+    const clean: Record<string, any> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (value !== undefined) {
+        clean[key] = sanitizeForFirestore(value);
+      }
+    }
+    return clean as any;
+  }
+  return obj;
+}
+
 export async function saveProduct(product: Product): Promise<boolean> {
   const cached = localStorage.getItem(LOCAL_PRODUCTS_KEY);
-  let list: Product[] = cached ? JSON.parse(cached) : [...DEFAULT_PRODUCTS];
+  let list: Product[] = cached ? JSON.parse(cached) : [];
   const idx = list.findIndex(p => p.id === product.id);
   if (idx >= 0) {
     list[idx] = product;
@@ -137,11 +162,12 @@ export async function saveProduct(product: Product): Promise<boolean> {
   notifyProductListeners(list);
 
   try {
-    await setDoc(doc(db, 'products', product.id), product);
+    const cleanDoc = sanitizeForFirestore(product);
+    await setDoc(doc(db, 'products', product.id), cleanDoc);
     return true;
   } catch (err) {
-    console.warn('Product saved locally, Firestore error:', err);
-    return true;
+    console.error('Product save to Firestore error:', err);
+    throw err;
   }
 }
 
@@ -149,7 +175,7 @@ export async function saveProductsBulk(
   newProducts: Product[],
   newCategories: Category[] = []
 ): Promise<boolean> {
-  // 1. Update Categories if any
+  // 1. Update Categories locally
   if (newCategories.length > 0) {
     const cachedCats = localStorage.getItem(LOCAL_CATEGORIES_KEY);
     let catList: Category[] = cachedCats ? JSON.parse(cachedCats) : [...DEFAULT_CATEGORIES];
@@ -164,7 +190,7 @@ export async function saveProductsBulk(
 
   // 2. Update Products locally
   const cachedProds = localStorage.getItem(LOCAL_PRODUCTS_KEY);
-  let prodList: Product[] = cachedProds ? JSON.parse(cachedProds) : [...DEFAULT_PRODUCTS];
+  let prodList: Product[] = cachedProds ? JSON.parse(cachedProds) : [];
   for (const prod of newProducts) {
     const idx = prodList.findIndex(p => p.id === prod.id || p.name.toLowerCase() === prod.name.toLowerCase());
     if (idx >= 0) prodList[idx] = prod;
@@ -173,26 +199,44 @@ export async function saveProductsBulk(
   localStorage.setItem(LOCAL_PRODUCTS_KEY, JSON.stringify(prodList));
   notifyProductListeners(prodList);
 
-  // 3. Batch commit to Firestore
+  // 3. Commit to Firestore in chunks (max 300 operations per batch)
   try {
-    const batch = writeBatch(db);
+    const operations: { ref: any; data: any }[] = [];
+
     for (const cat of newCategories) {
-      batch.set(doc(db, 'categories', cat.id), cat);
+      operations.push({
+        ref: doc(db, 'categories', cat.id),
+        data: sanitizeForFirestore(cat),
+      });
     }
+
     for (const prod of newProducts) {
-      batch.set(doc(db, 'products', prod.id), prod);
+      operations.push({
+        ref: doc(db, 'products', prod.id),
+        data: sanitizeForFirestore(prod),
+      });
     }
-    await batch.commit();
+
+    const CHUNK_SIZE = 300;
+    for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
+      const chunk = operations.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(db);
+      for (const op of chunk) {
+        batch.set(op.ref, op.data);
+      }
+      await batch.commit();
+    }
+
     return true;
-  } catch (err) {
-    console.warn('Batch saved locally, Firestore note:', err);
-    return true;
+  } catch (err: any) {
+    console.error('CRITICAL: Error committing bulk products to Firestore:', err);
+    throw new Error(err.message || 'Erro ao gravar os produtos no Firestore.');
   }
 }
 
 export async function removeProduct(productId: string): Promise<boolean> {
   const cached = localStorage.getItem(LOCAL_PRODUCTS_KEY);
-  let list: Product[] = cached ? JSON.parse(cached) : [...DEFAULT_PRODUCTS];
+  let list: Product[] = cached ? JSON.parse(cached) : [];
   const updated = list.filter(p => p.id !== productId);
   localStorage.setItem(LOCAL_PRODUCTS_KEY, JSON.stringify(updated));
   notifyProductListeners(updated);
@@ -203,6 +247,27 @@ export async function removeProduct(productId: string): Promise<boolean> {
   } catch (err) {
     console.warn('Product deleted locally, Firestore error:', err);
     return true;
+  }
+}
+
+// Clear all products completely from Firestore and local storage (for clean database)
+export async function clearAllProducts(): Promise<boolean> {
+  localStorage.setItem(LOCAL_PRODUCTS_KEY, JSON.stringify([]));
+  notifyProductListeners([]);
+
+  try {
+    const snap = await getDocs(collection(db, 'products'));
+    if (!snap.empty) {
+      const batch = writeBatch(db);
+      snap.forEach((d) => {
+        batch.delete(d.ref);
+      });
+      await batch.commit();
+    }
+    return true;
+  } catch (err) {
+    console.error('Error clearing products collection from Firestore:', err);
+    throw err;
   }
 }
 
@@ -361,7 +426,23 @@ export async function removeCoupon(couponId: string): Promise<boolean> {
 }
 
 // Settings
+const settingsListeners = new Set<(settings: StoreSettings) => void>();
+
+export function getStoredAdminPassword(): string {
+  try {
+    const cached = localStorage.getItem(LOCAL_SETTINGS_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed.adminPassword && String(parsed.adminPassword).trim()) {
+        return String(parsed.adminPassword).trim();
+      }
+    }
+  } catch {}
+  return DEFAULT_SETTINGS.adminPassword || '1234';
+}
+
 export function subscribeSettings(callback: (settings: StoreSettings) => void): () => void {
+  settingsListeners.add(callback);
   let lastJson = '';
 
   const cached = localStorage.getItem(LOCAL_SETTINGS_KEY);
@@ -387,9 +468,14 @@ export function subscribeSettings(callback: (settings: StoreSettings) => void): 
         }
       }
     }, (err) => console.warn('Settings listener note:', err.message));
-    return unsub;
+    return () => {
+      settingsListeners.delete(callback);
+      unsub();
+    };
   } catch {
-    return () => {};
+    return () => {
+      settingsListeners.delete(callback);
+    };
   }
 }
 
@@ -398,7 +484,16 @@ export async function saveSettings(settings: StoreSettings): Promise<boolean> {
     // 1. Always save in localStorage instantly
     localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify(settings));
 
-    // 2. Persist to Firestore
+    // 2. Notify all active in-memory listeners immediately so React components update instantaneously
+    settingsListeners.forEach(listener => {
+      try {
+        listener(settings);
+      } catch (e) {
+        console.warn('Listener notification error in saveSettings:', e);
+      }
+    });
+
+    // 3. Persist to Firestore
     await setDoc(doc(db, 'settings', 'config'), settings, { merge: true });
     return true;
   } catch (err) {

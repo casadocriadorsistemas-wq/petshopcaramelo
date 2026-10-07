@@ -87,6 +87,7 @@ export interface StoreSettings {
   closedMessage: string;
   whatsappHelpNotice: string;
   adminPassword?: string;
+  hidePetFilters?: boolean;
 }
 
 export interface OrderRecord {

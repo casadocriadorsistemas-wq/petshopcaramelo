@@ -249,6 +249,7 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   closedMessage: 'Loja fechada no momento, mas fique à vontade para escolher seus produtos! Entregaremos no primeiro horário de atendimento.',
   whatsappHelpNotice: 'Fale com a gente no WhatsApp • Atenderemos em segundos!',
   adminPassword: '1234',
+  hidePetFilters: false,
 };
 
 export const DEFAULT_SUBSCRIPTION: SystemSubscription = {

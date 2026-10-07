@@ -14,6 +14,7 @@ interface ProductCardProps {
   onSelectForCustom: (product: Product) => void;
   onAddDirectUnit: (item: CartItem) => void;
   onOpenDetails?: (product: Product) => void;
+  hidePetBadges?: boolean;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({
@@ -21,6 +22,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   onSelectForCustom,
   onAddDirectUnit,
   onOpenDetails,
+  hidePetBadges,
 }) => {
   const isRation = product.sellMode === 'bag_and_bulk' || product.sellMode === 'bag_only' || product.sellMode === 'bulk_only';
 
@@ -97,18 +99,20 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           )}
         </div>
 
-        {/* Animal Pet Badges - Positioned at bottom right to never overlap top promo badges */}
-        <div className="absolute bottom-2 right-2 sm:bottom-2.5 sm:right-2.5 z-10 pointer-events-none flex flex-wrap gap-1 justify-end max-w-[85%]">
-          {((product.animalTypes && product.animalTypes.length > 0) ? product.animalTypes : [product.animalType || 'dog']).map((pt) => (
-            <span key={pt} className="bg-white/95 backdrop-blur-sm text-stone-700 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold shadow-xs border border-stone-200/90 flex items-center gap-1">
-              {pt === 'cat' ? '🐈 Gatos' :
-               pt === 'bird' ? '🦜 Pássaros' :
-               pt === 'fish' ? '🐠 Peixes' :
-               pt === 'other' ? '🐾 Pets' :
-               '🐕 Cães'}
-            </span>
-          ))}
-        </div>
+        {/* Animal Pet Badges - Hidden if hidePetBadges is true */}
+        {!hidePetBadges && (
+          <div className="absolute bottom-2 right-2 sm:bottom-2.5 sm:right-2.5 z-10 pointer-events-none flex flex-wrap gap-1 justify-end max-w-[85%]">
+            {((product.animalTypes && product.animalTypes.length > 0) ? product.animalTypes : [product.animalType || 'dog']).map((pt) => (
+              <span key={pt} className="bg-white/95 backdrop-blur-sm text-stone-700 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold shadow-xs border border-stone-200/90 flex items-center gap-1">
+                {pt === 'cat' ? '🐈 Gatos' :
+                 pt === 'bird' ? '🦜 Pássaros' :
+                 pt === 'fish' ? '🐠 Peixes' :
+                 pt === 'other' ? '🐾 Pets' :
+                 '🐕 Cães'}
+              </span>
+            ))}
+          </div>
+        )}
 
         {!product.inStock && (
           <div className="absolute inset-0 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center">

@@ -35,7 +35,7 @@ export const Header: React.FC<HeaderProps> = ({
   )}`;
 
   return (
-    <>
+    <header translate="no" className="notranslate">
       {/* Top Banner Notice */}
       <div className="bg-amber-500 text-stone-900 text-xs sm:text-sm font-semibold px-4 py-1.5 flex items-center justify-between shadow-sm">
         <div className="container mx-auto flex items-center justify-between">
@@ -175,6 +175,6 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
       )}
-    </>
+    </header>
   );
 };

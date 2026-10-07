@@ -47,16 +47,15 @@ import {
   ExpiredLockScreen 
 } from './components/ExpiredLockScreen';
 import { 
-  Product, 
   Category, 
   Coupon, 
   StoreSettings, 
   CartItem, 
   OrderRecord,
-  SystemSubscription 
+  SystemSubscription,
+  Product
 } from './types';
 import { 
-  DEFAULT_PRODUCTS, 
   DEFAULT_CATEGORIES, 
   DEFAULT_COUPONS, 
   DEFAULT_SETTINGS,
@@ -89,11 +88,25 @@ import {
 const LOCAL_CART_KEY = 'pet_store_customer_cart_v1';
 
 export default function App() {
-  // Remote/Local synchronized states
-  const [products, setProducts] = useState<Product[]>(DEFAULT_PRODUCTS);
+  // Remote/Local synchronized states - starts empty [] when database is blank
+  const [products, setProducts] = useState<Product[]>(() => {
+    try {
+      const saved = localStorage.getItem('pet_store_products_v1');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
   const [coupons, setCoupons] = useState<Coupon[]>(DEFAULT_COUPONS);
-  const [settings, setSettings] = useState<StoreSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<StoreSettings>(() => {
+    try {
+      const saved = localStorage.getItem('pet_delivery_settings_v1');
+      return saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
+    } catch {
+      return DEFAULT_SETTINGS;
+    }
+  });
   const [orders, setOrders] = useState<OrderRecord[]>([]);
 
   // Cart state
@@ -129,7 +142,7 @@ export default function App() {
   // On mount: test connection, seed if empty, attach subscriptions
   useEffect(() => {
     testConnection();
-    //seedInitialDataIfNeeded();
+    seedInitialDataIfNeeded();
 
     const unsubProducts = subscribeProducts(setProducts);
     const unsubCategories = subscribeCategories(setCategories);
@@ -224,8 +237,8 @@ export default function App() {
     } else if (selectedCategoryId !== 'all' && p.categoryId !== selectedCategoryId) {
       return false;
     }
-    // Animal filter (Cães, Gatos, Pássaros, Peixes, Outros)
-    if (selectedAnimal !== 'all') {
+    // Animal filter (Cães, Gatos, Pássaros, Peixes, Outros) - Ignored when hidePetFilters is true
+    if (!settings.hidePetFilters && selectedAnimal !== 'all') {
       const productPets: string[] = (p.animalTypes && p.animalTypes.length > 0)
         ? p.animalTypes
         : p.animalType
@@ -268,32 +281,35 @@ export default function App() {
       <StoreStatusBanner openStatus={openStatus} />
 
       {/* 3. Hero Feature Cards */}
-      <section className="bg-gradient-to-b from-white to-stone-100 border-b border-stone-200/80 py-4 sm:py-6">
+      <section translate="no" className="notranslate bg-gradient-to-b from-white to-stone-100 border-b border-stone-200/80 py-4 sm:py-6">
         <div className="container mx-auto px-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="bg-blue-50/80 border border-blue-200/80 rounded-2xl p-3.5 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm">
-                <Scale className="w-5 h-5" />
+          <div className={`grid grid-cols-1 ${settings.hidePetFilters ? 'sm:grid-cols-2 max-w-4xl mx-auto' : 'sm:grid-cols-2 md:grid-cols-3'} gap-3`}>
+            {/* Informativo Ração a Granel por Kg ou Reais - Oculto em todos os modos se hidePetFilters estiver ativo */}
+            {!settings.hidePetFilters && (
+              <div className="bg-blue-50/80 border border-blue-200/80 rounded-2xl p-3.5 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                  <Scale className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="font-extrabold text-xs sm:text-sm text-blue-950">
+                    Ração a Granel por Kg ou Reais
+                  </h2>
+                  <p className="text-[11px] text-blue-800">
+                    Compre R$ 10, R$ 20 ou quantos quilos desejar, pesado na hora!
+                  </p>
+                </div>
               </div>
-              <div>
-                <h2 className="font-extrabold text-xs sm:text-sm text-blue-950">
-                  Ração a Granel por Kg ou Reais
-                </h2>
-                <p className="text-[11px] text-blue-800">
-                  Compre R$ 10, R$ 20 ou quantos quilos desejar, pesado na hora!
-                </p>
-              </div>
-            </div>
+            )}
 
-            <div className="bg-amber-50/80 border border-amber-200/80 rounded-2xl p-3.5 flex items-center gap-3">
+            <div translate="no" className="notranslate bg-amber-50/80 border border-amber-200/80 rounded-2xl p-3.5 flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-amber-500 text-stone-950 flex items-center justify-center shrink-0 shadow-sm">
                 <Truck className="w-5 h-5" />
               </div>
-              <div>
-                <h2 className="font-extrabold text-xs sm:text-sm text-stone-950">
+              <div translate="no" className="notranslate">
+                <h2 translate="no" className="notranslate font-extrabold text-xs sm:text-sm text-stone-950">
                   Entrega Rápida em Casa
                 </h2>
-                <p className="text-[11px] text-amber-900">
+                <p translate="no" className="notranslate text-[11px] text-amber-900">
                   Frete grátis em compras acima de R$ {settings.freeDeliveryThreshold.toFixed(2).replace('.', ',')}
                 </p>
               </div>
@@ -326,6 +342,7 @@ export default function App() {
         selectedAnimal={selectedAnimal}
         onSelectAnimal={setSelectedAnimal}
         promoCount={promoCount}
+        hidePetFilters={settings.hidePetFilters}
       />
 
       {/* 5. Main Catalog Grid */}
@@ -357,20 +374,33 @@ export default function App() {
         {filteredProducts.length === 0 ? (
           <div className="bg-white rounded-3xl p-10 text-center border border-stone-200 shadow-xs max-w-md mx-auto my-8">
             <ShoppingBag className="w-12 h-12 stroke-1 text-stone-300 mx-auto mb-3" />
-            <h3 className="font-extrabold text-stone-800 text-base">Nenhum produto encontrado</h3>
+            <h3 className="font-extrabold text-stone-800 text-base">
+              {products.length === 0 ? 'Catálogo em branco' : 'Nenhum produto encontrado'}
+            </h3>
             <p className="text-xs text-stone-500 mt-1">
-              Tente buscar com outro termo ou selecionar outra categoria acima.
+              {products.length === 0
+                ? 'Nenhum produto cadastrado no catálogo. Adicione produtos pelo Painel do Lojista ou importe via planilha Excel.'
+                : 'Tente buscar com outro termo ou selecionar outra categoria acima.'}
             </p>
-            <button
-              onClick={() => {
-                setSelectedCategoryId('all');
-                setSelectedAnimal('all');
-                setSearchQuery('');
-              }}
-              className="mt-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2 px-4 rounded-xl"
-            >
-              Limpar Filtros
-            </button>
+            {products.length === 0 ? (
+              <button
+                onClick={() => setIsAdminOpen(true)}
+                className="mt-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2 px-4 rounded-xl shadow-xs transition-colors"
+              >
+                Abrir Painel do Lojista
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setSelectedCategoryId('all');
+                  setSelectedAnimal('all');
+                  setSearchQuery('');
+                }}
+                className="mt-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2 px-4 rounded-xl transition-colors"
+              >
+                Limpar Filtros
+              </button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5">
@@ -381,6 +411,7 @@ export default function App() {
                 onSelectForCustom={setSelectedProductForCustom}
                 onAddDirectUnit={handleAddToCart}
                 onOpenDetails={setSelectedProductForDetails}
+                hidePetBadges={settings.hidePetFilters}
               />
             ))}
           </div>
@@ -392,7 +423,7 @@ export default function App() {
           
           <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6 text-center md:text-left">
             <div className="space-y-2 max-w-xl">
-              <span className="inline-flex items-center gap-1.5 bg-amber-400 text-stone-950 text-xs font-black px-3 py-1 rounded-full uppercase tracking-wider">
+              <span translate="no" className="notranslate inline-flex items-center gap-1.5 bg-amber-400 text-stone-950 text-xs font-black px-3 py-1 rounded-full uppercase tracking-wider">
                 ⚡ Atendimento Rápido
               </span>
               <h3 className="text-xl sm:text-2xl font-black text-white leading-tight">
@@ -409,10 +440,11 @@ export default function App() {
               )}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="bg-blue-600 hover:bg-blue-500 text-white font-black px-6 py-4 rounded-2xl text-sm sm:text-base shadow-lg shadow-blue-950/30 flex items-center justify-center gap-2.5 transition-all transform hover:scale-105 active:scale-95 shrink-0"
+              translate="no"
+              className="notranslate bg-blue-600 hover:bg-blue-500 text-white font-black px-6 py-4 rounded-2xl text-sm sm:text-base shadow-lg shadow-blue-950/30 flex items-center justify-center gap-2.5 transition-all transform hover:scale-105 active:scale-95 shrink-0"
             >
               <PhoneCall className="w-5 h-5 text-white" />
-              <span>Falar no WhatsApp</span>
+              <span translate="no" className="notranslate">Falar no WhatsApp</span>
             </a>
           </div>
         </div>
@@ -498,6 +530,7 @@ export default function App() {
             setSelectedProductForDetails(null);
             handleAddToCart(item);
           }}
+          hidePetBadges={settings.hidePetFilters}
         />
       )}
 
@@ -551,6 +584,7 @@ export default function App() {
         coupons={coupons}
         settings={settings}
         orders={orders}
+        onSettingsUpdated={setSettings}
       />
       <AddToCartChoiceModal
         isOpen={!!addedChoiceItem}

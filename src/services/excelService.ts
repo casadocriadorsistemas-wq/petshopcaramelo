@@ -543,18 +543,12 @@ export async function parseImportFile(
     const description = String(getCol(row, ['descricao', 'detalhes', 'obs']) || '').trim();
 
     const product: Product = {
-      id: `prod-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+      id: `prod-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
       name: rawName,
       description: description || `Produto de alta qualidade para ${animalTypes.includes('cat') ? 'gatos' : 'cães'}.`,
       categoryId,
       imageUrl,
       sellMode,
-      bagPrice: bagPrice || (bagVariations[0]?.price || 120),
-      bagWeightKg: bagWeightKg || (bagVariations[0]?.weightKg || 15),
-      bagVariations: bagVariations.length > 0 ? bagVariations : undefined,
-      bulkPricePerKg: bulkPricePerKg || 14.50,
-      unitPrice: unitPrice || (sellMode === 'unit' ? 19.90 : undefined),
-      unitLabel: sellMode === 'unit' ? unitLabel : undefined,
       stockBags,
       stockKg,
       stockUnits,
@@ -566,6 +560,25 @@ export async function parseImportFile(
       animalTypes,
       createdAt: new Date().toISOString(),
     };
+
+    if (bagPrice > 0) {
+      product.bagPrice = bagPrice;
+    }
+    if (bagWeightKg > 0) {
+      product.bagWeightKg = bagWeightKg;
+    }
+    if (bagVariations.length > 0) {
+      product.bagVariations = bagVariations;
+    }
+    if (bulkPricePerKg > 0) {
+      product.bulkPricePerKg = bulkPricePerKg;
+    }
+    if (unitPrice > 0) {
+      product.unitPrice = unitPrice;
+    }
+    if (unitLabel) {
+      product.unitLabel = unitLabel;
+    }
 
     products.push(product);
   }

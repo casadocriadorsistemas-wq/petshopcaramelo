@@ -99,7 +99,7 @@ export const ImportExcelModal: React.FC<ImportExcelModalProps> = ({
       }, 2000);
     } catch (err: any) {
       console.error('Error saving imported products:', err);
-      setErrorMsg('Falha ao salvar os produtos no sistema. Tente novamente.');
+      setErrorMsg(err?.message || 'Falha ao salvar os produtos no sistema. Tente novamente.');
     } finally {
       setIsSaving(false);
     }

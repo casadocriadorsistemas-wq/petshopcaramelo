@@ -1,12 +1,50 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import defaultFirebaseConfig from '../../firebase-applet-config.json';
+import { FirebaseAppletConfig } from '../services/firebaseConfigParser';
 
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+export const CUSTOM_FIREBASE_CONFIG_KEY = 'pet_store_custom_firebase_config_v1';
 
-// CRITICAL: Must pass firestoreDatabaseId to getFirestore
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export function getActiveFirebaseConfig(): FirebaseAppletConfig {
+  try {
+    const custom = localStorage.getItem(CUSTOM_FIREBASE_CONFIG_KEY);
+    if (custom) {
+      const parsed = JSON.parse(custom);
+      if (parsed.projectId && parsed.apiKey) {
+        return parsed;
+      }
+    }
+  } catch {}
+  return defaultFirebaseConfig as FirebaseAppletConfig;
+}
+
+export function isUsingCustomFirebaseConfig(): boolean {
+  try {
+    const custom = localStorage.getItem(CUSTOM_FIREBASE_CONFIG_KEY);
+    return !!custom;
+  } catch {
+    return false;
+  }
+}
+
+export function saveActiveFirebaseConfig(config: FirebaseAppletConfig) {
+  localStorage.setItem(CUSTOM_FIREBASE_CONFIG_KEY, JSON.stringify(config, null, 2));
+}
+
+export function resetToDefaultFirebaseConfig() {
+  localStorage.removeItem(CUSTOM_FIREBASE_CONFIG_KEY);
+}
+
+const activeConfig = getActiveFirebaseConfig();
+const app = getApps().length === 0 ? initializeApp(activeConfig) : getApps()[0];
+
+// CRITICAL: If custom database has '(default)' or empty, use standard default DB; otherwise use custom ID
+const dbId = activeConfig.firestoreDatabaseId && activeConfig.firestoreDatabaseId !== '(default)'
+  ? activeConfig.firestoreDatabaseId
+  : undefined;
+
+export const db = dbId ? getFirestore(app, dbId) : getFirestore(app);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 

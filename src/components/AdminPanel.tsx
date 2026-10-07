@@ -17,22 +17,44 @@ import {
   Loader2,
   FileSpreadsheet,
   Download,
-  Upload
+  Upload,
+  Image as ImageIcon,
+  Database,
+  Sparkles,
+  Copy,
+  RotateCcw,
+  CheckCircle2,
+  AlertTriangle,
+  RefreshCw,
+  Eye,
+  EyeOff,
+  SlidersHorizontal
 } from 'lucide-react';
 import { Product, Category, Coupon, StoreSettings, OrderRecord, SellMode, AnimalType } from '../types';
 import { 
   saveProduct, 
   removeProduct, 
+  clearAllProducts,
   saveCategory, 
   removeCategory, 
   saveCoupon, 
   removeCoupon, 
   saveSettings,
-  updateOrderStatus 
+  updateOrderStatus,
+  getStoredAdminPassword
 } from '../services/storeService';
 import { downloadTemplateExcel, exportProductsToExcel } from '../services/excelService';
 import { ImportExcelModal } from './ImportExcelModal';
-import { PRESET_IMAGES } from '../data/defaultData';
+import { 
+  getActiveFirebaseConfig, 
+  isUsingCustomFirebaseConfig, 
+  saveActiveFirebaseConfig, 
+  resetToDefaultFirebaseConfig 
+} from '../lib/firebase';
+import { 
+  parseFirebaseConfigInput, 
+  FirebaseAppletConfig 
+} from '../services/firebaseConfigParser';
 
 interface AdminPanelProps {
   isOpen: boolean;
@@ -42,6 +64,7 @@ interface AdminPanelProps {
   coupons: Coupon[];
   settings: StoreSettings;
   orders: OrderRecord[];
+  onSettingsUpdated?: (settings: StoreSettings) => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -52,8 +75,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   coupons,
   settings,
   orders,
+  onSettingsUpdated,
 }) => {
-  const [activeTab, setActiveTab] = useState<'products' | 'categories' | 'coupons' | 'settings' | 'orders'>('products');
+  const [activeTab, setActiveTab] = useState<'products' | 'categories' | 'coupons' | 'settings' | 'orders' | 'database'>('products');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
@@ -65,10 +89,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [productFormError, setProductFormError] = useState('');
   const [adminProductSearch, setAdminProductSearch] = useState('');
   const [adminOnlyPromo, setAdminOnlyPromo] = useState(false);
+  const [imageLoadError, setImageLoadError] = useState(false);
 
   // In-app Delete Confirmation state (avoids window.confirm which gets blocked in iframes)
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
-    type: 'category' | 'product' | 'coupon';
+    type: 'category' | 'product' | 'coupon' | 'all_products';
     id: string;
     name: string;
   } | null>(null);
@@ -91,27 +116,160 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isImportExcelOpen, setIsImportExcelOpen] = useState(false);
 
+  // Database Tab state (Request 6)
+  const [currentConfig, setCurrentConfig] = useState<FirebaseAppletConfig>(getActiveFirebaseConfig());
+  const [hasCustomDb, setHasCustomDb] = useState<boolean>(isUsingCustomFirebaseConfig());
+  const [dbInputText, setDbInputText] = useState('');
+  const [parsedConfig, setParsedConfig] = useState<FirebaseAppletConfig | null>(null);
+  const [formattedJsonOutput, setFormattedJsonOutput] = useState('');
+  const [parseError, setParseError] = useState('');
+  const [dbSuccessMsg, setDbSuccessMsg] = useState('');
+  const [isSavingDb, setIsSavingDb] = useState(false);
+  const [copiedDbJson, setCopiedDbJson] = useState(false);
+
   // Sync formSettings when settings prop updates
   useEffect(() => {
     if (settings) {
       setFormSettings({ ...settings });
     }
+    if (isOpen) {
+      setCurrentConfig(getActiveFirebaseConfig());
+      setHasCustomDb(isUsingCustomFirebaseConfig());
+    }
   }, [settings, isOpen]);
+
+  // Reset image load error when editing product image changes
+  useEffect(() => {
+    setImageLoadError(false);
+  }, [editingProduct?.imageUrl]);
 
   if (!isOpen) return null;
 
-  const currentAdminPassword = settings.adminPassword || '1234';
+  // Retrieve the currently registered password: from settings or direct localStorage fallback
+  const getActiveAdminPassword = (): string => {
+    try {
+      const cached = localStorage.getItem('pet_delivery_settings_v1');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.adminPassword && String(parsed.adminPassword).trim()) {
+          return String(parsed.adminPassword).trim();
+        }
+      }
+    } catch {}
+    return (settings.adminPassword && String(settings.adminPassword).trim()) || getStoredAdminPassword() || '1234';
+  };
 
   const handlePinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const entered = pinInput.trim();
-    if (entered === currentAdminPassword || entered === '1234' || entered.toLowerCase() === 'admin') {
+    const activePassword = getActiveAdminPassword();
+
+    // STRICT AUTHENTICATION: Only accept the currently configured password!
+    // Never allow bypass with '1234' or 'admin' once the merchant changed their password!
+    if (entered === activePassword) {
       setIsAuthenticated(true);
       setPinError('');
       setPinInput('');
     } else {
-      setPinError('Senha incorreta. Tente novamente.');
+      setPinError('Senha incorreta! Digite a senha cadastrada no painel.');
     }
+  };
+
+  // Database Tab handlers (Request 6)
+  const handleDbInputChange = (text: string) => {
+    setDbInputText(text);
+    setDbSuccessMsg('');
+    if (!text.trim()) {
+      setParsedConfig(null);
+      setFormattedJsonOutput('');
+      setParseError('');
+      return;
+    }
+
+    const result = parseFirebaseConfigInput(text);
+    if (result.success && result.config && result.formattedJson) {
+      setParsedConfig(result.config);
+      setFormattedJsonOutput(result.formattedJson);
+      setParseError('');
+    } else {
+      setParsedConfig(null);
+      setFormattedJsonOutput('');
+      setParseError(result.error || 'Formato inválido. Insira o objeto com apiKey, projectId, appId.');
+    }
+  };
+
+  const handleFillSampleDb = () => {
+    const sample = `{\n  apiKey: "AIzaSyCWdj8oW7mBlIloEJdyXN3_N4btg203FlM",\n  authDomain: "lojabase1-9a4d4.firebaseapp.com",\n  projectId: "lojabase1-9a4d4",\n  storageBucket: "lojabase1-9a4d4.firebasestorage.app",\n  messagingSenderId: "1094336366479",\n  appId: "1:1094336366479:web:f7acb05482ccf71707adfa",\n  measurementId: "G-9L3Z7GYPQD"\n};`;
+    handleDbInputChange(sample);
+  };
+
+  const handleCopyDbJson = () => {
+    if (!formattedJsonOutput) return;
+    navigator.clipboard.writeText(formattedJsonOutput);
+    setCopiedDbJson(true);
+    setTimeout(() => setCopiedDbJson(false), 2500);
+  };
+
+  const handleDownloadDbJson = () => {
+    if (!formattedJsonOutput) return;
+    const blob = new Blob([formattedJsonOutput], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'firebase-applet-config.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleSaveDatabaseConfig = async () => {
+    if (!parsedConfig) return;
+    setIsSavingDb(true);
+    setDbSuccessMsg('');
+
+    try {
+      // 1. Save in active localStorage
+      saveActiveFirebaseConfig(parsedConfig);
+
+      // 2. Persist to disk /firebase-applet-config.json via server endpoint
+      let fileSavedOnDisk = false;
+      try {
+        const response = await fetch('/api/save-firebase-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(parsedConfig, null, 2),
+        });
+        if (response.ok) {
+          fileSavedOnDisk = true;
+        }
+      } catch (e) {
+        console.warn('File save API note:', e);
+      }
+
+      setCurrentConfig(parsedConfig);
+      setHasCustomDb(true);
+      setDbSuccessMsg(
+        fileSavedOnDisk
+          ? '✓ Sucesso! O arquivo firebase-applet-config.json foi atualizado no disco e o banco ativado!'
+          : '✓ Sucesso! Configuração gravada e ativada no sistema!'
+      );
+    } catch (err: any) {
+      setParseError(err.message || 'Erro ao salvar novo banco de dados.');
+    } finally {
+      setIsSavingDb(false);
+    }
+  };
+
+  const handleRestoreDefaultDatabase = async () => {
+    resetToDefaultFirebaseConfig();
+    try {
+      const response = await fetch('/api/save-firebase-config');
+      if (response.ok) {
+        const diskConfig = await response.json();
+        setCurrentConfig(diskConfig);
+      }
+    } catch {}
+    setHasCustomDb(false);
+    setDbSuccessMsg('✓ Banco de dados restaurado para a configuração inicial! Recarregue a página.');
   };
 
   // Product Actions
@@ -121,7 +279,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       name: '',
       description: '',
       categoryId: categories[0]?.id || 'cat-granel',
-      imageUrl: PRESET_IMAGES[0].url,
+      imageUrl: '',
       sellMode: 'bag_and_bulk',
       bagPrice: 150,
       bagWeightKg: 15,
@@ -220,6 +378,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         await removeProduct(id);
       } else if (type === 'coupon') {
         await removeCoupon(id);
+      } else if (type === 'all_products') {
+        await clearAllProducts();
       }
     } catch (err) {
       console.error('Delete error:', err);
@@ -279,8 +439,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setIsSavingSettings(true);
     setSaveSuccessMsg('');
     try {
-      await saveSettings(formSettings);
-      setSaveSuccessMsg('✓ Todas as configurações e horários foram salvos com sucesso!');
+      const updated = {
+        ...formSettings,
+        adminPassword: formSettings.adminPassword?.trim() || '1234'
+      };
+      await saveSettings(updated);
+      if (onSettingsUpdated) {
+        onSettingsUpdated(updated);
+      }
+      setSaveSuccessMsg('✓ Todas as configurações e nova senha foram salvas com sucesso!');
       setTimeout(() => setSaveSuccessMsg(''), 4000);
     } catch (err) {
       console.error('Error saving settings:', err);
@@ -353,7 +520,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </form>
 
             <p className="text-[11px] text-stone-400">
-              A senha padrão é <strong>1234</strong>. Você pode alterá-la na aba "Horários & Loja".
+              Digite a senha definida no painel. (Padrão inicial do sistema: <strong>1234</strong>)
             </p>
           </div>
         ) : (
@@ -366,6 +533,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 { id: 'coupons', label: 'Cupons de Desconto', icon: <Tag className="w-4 h-4" /> },
                 { id: 'settings', label: 'Horários & Loja', icon: <Clock className="w-4 h-4" /> },
                 { id: 'orders', label: 'Pedidos Recebidos', icon: <ShoppingBag className="w-4 h-4" /> },
+                { id: 'database', label: 'Banco de Dados', icon: <Database className="w-4 h-4" /> },
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -437,12 +605,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </div>
                       </div>
 
-                      {/* Pet Type Multi-Selector for filtering */}
-                      <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <label className="text-xs font-bold text-stone-700">
-                            Tipo de Pet (Pode marcar mais de um):
-                          </label>
+                      {/* Pet Type Multi-Selector for filtering (Hidden if hidePetFilters is active) */}
+                      {!formSettings.hidePetFilters && (
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <label className="text-xs font-bold text-stone-700">
+                              Tipo de Pet (Pode marcar mais de um):
+                            </label>
                           <span className="text-[11px] text-blue-700 font-semibold">
                             Selecione todos que se aplicam (ex: Cães e Gatos juntos)
                           </span>
@@ -512,9 +681,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           ))}
                         </div>
                       </div>
+                    )}
 
-                      <div>
-                        <label className="block text-xs font-bold text-stone-700 mb-1">
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 mb-1">
                           Descrição detalhada:
                         </label>
                         <textarea
@@ -724,33 +894,59 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </div>
                       )}
 
-                      {/* Image selector */}
+                      {/* Image Input and Live Preview */}
                       <div>
-                        <label className="block text-xs font-bold text-stone-700 mb-1">
-                          Foto do Produto (URL):
+                        <label className="block text-xs font-bold text-stone-700 mb-1 flex items-center justify-between">
+                          <span>Foto do Produto (Link URL):</span>
+                          {editingProduct.imageUrl?.trim() && (
+                            <span className="text-[10px] text-blue-600 font-bold flex items-center gap-1">
+                              ✓ Link inserido (Pré-visualização ativa)
+                            </span>
+                          )}
                         </label>
-                        <input
-                          type="url"
-                          value={editingProduct.imageUrl}
-                          onChange={(e) => setEditingProduct({ ...editingProduct, imageUrl: e.target.value })}
-                          placeholder="https://images.unsplash.com/..."
-                          className="w-full px-3 py-2 rounded-xl border border-stone-300 text-xs bg-white outline-none focus:border-blue-500"
-                        />
+                        <div className="flex flex-col sm:flex-row gap-3 items-start">
+                          <div className="flex-1 w-full space-y-1.5">
+                            <input
+                              type="url"
+                              value={editingProduct.imageUrl || ''}
+                              onChange={(e) => setEditingProduct({ ...editingProduct, imageUrl: e.target.value })}
+                              placeholder="Cole o link da foto (ex: https://...)"
+                              className="w-full px-3 py-2.5 rounded-xl border border-stone-300 text-xs bg-white outline-none focus:border-blue-500 font-medium"
+                            />
+                            <p className="text-[11px] text-stone-400">
+                              Cole o link direto da imagem (JPG, PNG ou WEBP) para visualizar como ficará no catálogo.
+                            </p>
+                          </div>
 
-                        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pt-2">
-                          {PRESET_IMAGES.map((img, i) => (
-                            <button
-                              key={i}
-                              type="button"
-                              onClick={() => setEditingProduct({ ...editingProduct, imageUrl: img.url })}
-                              className="shrink-0 relative group rounded-lg overflow-hidden border-2 hover:border-blue-500"
-                            >
-                              <img src={img.url} alt={img.label} className="w-12 h-12 object-cover" />
-                              <span className="absolute inset-0 bg-stone-900/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-[9px] text-white font-bold text-center p-0.5">
-                                {img.label}
-                              </span>
-                            </button>
-                          ))}
+                          {/* Live Image Preview Card */}
+                          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 flex items-center justify-center overflow-hidden shrink-0 relative shadow-xs">
+                            {editingProduct.imageUrl?.trim() ? (
+                              !imageLoadError ? (
+                                <>
+                                  <img
+                                    src={editingProduct.imageUrl}
+                                    alt="Pré-visualização do produto"
+                                    className="w-full h-full object-contain p-1"
+                                    onError={() => setImageLoadError(true)}
+                                  />
+                                  <span className="absolute bottom-1 right-1 bg-stone-900/80 text-white text-[9px] font-bold px-1.5 py-0.5 rounded backdrop-blur-xs">
+                                    Preview
+                                  </span>
+                                </>
+                              ) : (
+                                <div className="text-center p-2 text-rose-500">
+                                  <AlertTriangle className="w-6 h-6 mx-auto stroke-1 mb-1 text-rose-400" />
+                                  <span className="text-[10px] font-semibold leading-tight block">Link inacessível</span>
+                                  <span className="text-[9px] text-stone-400 block mt-0.5">Imagem não carregou</span>
+                                </div>
+                              )
+                            ) : (
+                              <div className="text-center p-2 text-stone-400">
+                                <ImageIcon className="w-6 h-6 mx-auto stroke-1 mb-1 text-stone-300" />
+                                <span className="text-[10px] font-medium leading-tight block">Sem imagem</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -835,6 +1031,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             </button>
                           )}
 
+                          {/* Botão Limpar Catálogo (Desativado / Inativo temporariamente) */}
+                          {products.length > 0 && (
+                            <button
+                              type="button"
+                              disabled
+                              className="bg-stone-100 text-stone-400 border border-stone-200 px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 cursor-not-allowed opacity-60 select-none"
+                              title="Opção desativada temporariamente"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-stone-400" />
+                              <span className="hidden sm:inline">Limpar Catálogo</span>
+                            </button>
+                          )}
+
                           <button
                             onClick={handleStartNewProduct}
                             className="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95"
@@ -845,83 +1054,111 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        {products
-                          .filter((p) => {
-                            if (adminOnlyPromo && !p.isOnSale) return false;
-                            if (adminProductSearch.trim()) {
-                              const q = adminProductSearch.toLowerCase();
-                              return p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q);
-                            }
-                            return true;
-                          })
-                          .map((prod) => (
-                          <div
-                            key={prod.id}
-                            className="bg-white border border-stone-200 rounded-xl p-3 flex items-center justify-between gap-3 shadow-xs hover:border-stone-300"
-                          >
-                            <img
-                              src={prod.imageUrl}
-                              alt={prod.name}
-                              className="w-12 h-12 rounded-lg object-contain bg-white p-0.5 border border-stone-200 shrink-0"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <h4 className="font-extrabold text-stone-900 text-xs sm:text-sm truncate">
-                                  {prod.name}
-                                </h4>
-                                {((prod.animalTypes && prod.animalTypes.length > 0) ? prod.animalTypes : [prod.animalType || 'dog']).map((at) => (
-                                  <span key={at} className="bg-stone-100 border border-stone-200 text-stone-700 px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0">
-                                    {at === 'dog' && '🐕 Cão'}
-                                    {at === 'cat' && '🐈 Gato'}
-                                    {at === 'bird' && '🦜 Pássaro'}
-                                    {at === 'fish' && '🐠 Peixe'}
-                                    {at === 'other' && '🐾 Outro'}
-                                  </span>
-                                ))}
-                                {prod.isOnSale && (
-                                  <span className="bg-rose-100 border border-rose-300 text-rose-700 px-1.5 py-0.5 rounded text-[10px] font-black shrink-0">
-                                    🔥 {prod.promoDiscountText || 'Promoção'}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-2 text-xs text-stone-500 mt-0.5">
-                                <span>
-                                  {prod.sellMode === 'bag_and_bulk' && 'Saco & Granel'}
-                                  {prod.sellMode === 'bulk_only' && 'Apenas Granel'}
-                                  {prod.sellMode === 'bag_only' && 'Apenas Saco'}
-                                  {prod.sellMode === 'unit' && 'Unitário'}
-                                </span>
-                                <span>•</span>
-                                <span className={prod.inStock ? 'text-blue-700 font-bold' : 'text-rose-600 font-bold'}>
-                                  {prod.inStock ? 'Em estoque' : 'Esgotado'}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => {
-                                  setEditingProduct({ ...prod });
-                                  setIsNewProduct(false);
-                                }}
-                                className="p-2 text-stone-500 hover:text-blue-700 hover:bg-stone-100 rounded-lg transition-colors"
-                                title="Editar produto"
-                              >
-                                <Edit3 className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setDeleteConfirmation({ type: 'product', id: prod.id, name: prod.name })}
-                                className="p-2 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                                title="Excluir produto"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
+                      {products.length === 0 ? (
+                        <div className="bg-stone-50 border border-dashed border-stone-300 rounded-2xl p-8 text-center my-3">
+                          <Package className="w-10 h-10 stroke-1 text-stone-400 mx-auto mb-2" />
+                          <h4 className="font-extrabold text-stone-700 text-sm">Nenhum produto cadastrado</h4>
+                          <p className="text-xs text-stone-500 mt-1 max-w-sm mx-auto">
+                            O banco de dados está vazio. Você pode cadastrar produtos manualmente clicando em "Novo Produto", baixar o modelo ou importar sua planilha Excel com fotos e variações.
+                          </p>
+                          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handleStartNewProduct}
+                              className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2 px-3.5 rounded-xl flex items-center gap-1.5 shadow-sm"
+                            >
+                              <Plus className="w-4 h-4" />
+                              <span>Cadastrar Primeiro Produto</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setIsImportExcelOpen(true)}
+                              className="bg-white border border-stone-200 text-stone-700 hover:bg-stone-100 font-bold text-xs py-2 px-3.5 rounded-xl flex items-center gap-1.5 shadow-xs"
+                            >
+                              <Upload className="w-4 h-4 text-blue-600" />
+                              <span>Importar via Excel</span>
+                            </button>
                           </div>
-                        ))}
-                      </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {products
+                            .filter((p) => {
+                              if (adminOnlyPromo && !p.isOnSale) return false;
+                              if (adminProductSearch.trim()) {
+                                const q = adminProductSearch.toLowerCase();
+                                return p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q);
+                              }
+                              return true;
+                            })
+                            .map((prod) => (
+                            <div
+                              key={prod.id}
+                              className="bg-white border border-stone-200 rounded-xl p-3 flex items-center justify-between gap-3 shadow-xs hover:border-stone-300"
+                            >
+                              <img
+                                src={prod.imageUrl}
+                                alt={prod.name}
+                                className="w-12 h-12 rounded-lg object-contain bg-white p-0.5 border border-stone-200 shrink-0"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <h4 className="font-extrabold text-stone-900 text-xs sm:text-sm truncate">
+                                    {prod.name}
+                                  </h4>
+                                  {!formSettings.hidePetFilters && ((prod.animalTypes && prod.animalTypes.length > 0) ? prod.animalTypes : [prod.animalType || 'dog']).map((at) => (
+                                    <span key={at} className="bg-stone-100 border border-stone-200 text-stone-700 px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0">
+                                      {at === 'dog' && '🐕 Cão'}
+                                      {at === 'cat' && '🐈 Gato'}
+                                      {at === 'bird' && '🦜 Pássaro'}
+                                      {at === 'fish' && '🐠 Peixe'}
+                                      {at === 'other' && '🐾 Outro'}
+                                    </span>
+                                  ))}
+                                  {prod.isOnSale && (
+                                    <span className="bg-rose-100 border border-rose-300 text-rose-700 px-1.5 py-0.5 rounded text-[10px] font-black shrink-0">
+                                      🔥 {prod.promoDiscountText || 'Promoção'}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 text-xs text-stone-500 mt-0.5">
+                                  <span>
+                                    {prod.sellMode === 'bag_and_bulk' && 'Saco & Granel'}
+                                    {prod.sellMode === 'bulk_only' && 'Apenas Granel'}
+                                    {prod.sellMode === 'bag_only' && 'Apenas Saco'}
+                                    {prod.sellMode === 'unit' && 'Unitário'}
+                                  </span>
+                                  <span>•</span>
+                                  <span className={prod.inStock ? 'text-blue-700 font-bold' : 'text-rose-600 font-bold'}>
+                                    {prod.inStock ? 'Em estoque' : 'Esgotado'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => {
+                                    setEditingProduct({ ...prod });
+                                    setIsNewProduct(false);
+                                  }}
+                                  className="p-2 text-stone-500 hover:text-blue-700 hover:bg-stone-100 rounded-lg transition-colors"
+                                  title="Editar produto"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeleteConfirmation({ type: 'product', id: prod.id, name: prod.name })}
+                                  className="p-2 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                  title="Excluir produto"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1150,17 +1387,65 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       </h4>
                     </div>
                     <p className="text-xs text-stone-600">
-                      Defina a senha que você usa para acessar este painel.
+                      Defina a senha que você usa para acessar este painel. Ao salvar, apenas esta nova senha cadastrada será aceita para entrar.
                     </p>
-                    <div className="max-w-xs">
+                    <div className="max-w-xs space-y-1.5">
                       <input
                         type="text"
-                        value={formSettings.adminPassword || '1234'}
+                        value={formSettings.adminPassword !== undefined ? formSettings.adminPassword : ''}
                         onChange={(e) => setFormSettings({ ...formSettings, adminPassword: e.target.value })}
-                        placeholder="Ex: 1234"
-                        className="w-full px-3 py-2 rounded-lg border border-amber-300 text-xs font-bold bg-white text-stone-900 outline-none"
+                        placeholder="Digite a nova senha (ex: 1234, loja2025...)"
+                        className="w-full px-3 py-2 rounded-lg border border-amber-300 text-xs font-bold bg-white text-stone-900 outline-none focus:ring-2 focus:ring-amber-500/30"
                       />
+                      <div className="flex items-center justify-between text-[11px] text-stone-500 pt-0.5">
+                        <span>Senha ativa no momento:</span>
+                        <span className="font-mono font-bold text-amber-900 bg-amber-100/90 px-2 py-0.5 rounded border border-amber-200">
+                          {getActiveAdminPassword()}
+                        </span>
+                      </div>
                     </div>
+                  </div>
+
+                  {/* Controle de Visibilidade: Tipo de Pet, Filtros e Banner de Granel */}
+                  <div className="p-4 bg-stone-50 border border-stone-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <SlidersHorizontal className="w-4 h-4 text-blue-600" />
+                        <h4 className="font-extrabold text-stone-900 text-xs sm:text-sm">
+                          Ocultar Opção Tipo de Pet e Informativo de Granel
+                        </h4>
+                        {formSettings.hidePetFilters && (
+                          <span className="bg-amber-100 text-amber-900 text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-300 uppercase tracking-wider">
+                            Ocultação Ativa
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-stone-600 max-w-xl leading-relaxed">
+                        Ao ativar este botão, o sistema <strong>oculta a opção Tipo de Pet</strong> (Cães, Gatos, etc.) no cadastro/edição de produtos na área do lojista, <strong>remove os filtros de animais da página principal</strong> e também <strong>oculta o informativo "Ração a Granel por Kg ou Reais"</strong> em todos os modos de visualização (celular e computador).
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setFormSettings({ ...formSettings, hidePetFilters: !formSettings.hidePetFilters })}
+                      className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 transition-all shrink-0 cursor-pointer shadow-sm active:scale-95 ${
+                        formSettings.hidePetFilters
+                          ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-600/20'
+                          : 'bg-white hover:bg-stone-100 text-stone-700 border border-stone-300'
+                      }`}
+                    >
+                      {formSettings.hidePetFilters ? (
+                        <>
+                          <EyeOff className="w-4 h-4" />
+                          <span>Ocultado (Ativo)</span>
+                        </>
+                      ) : (
+                        <>
+                          <Eye className="w-4 h-4 text-stone-500" />
+                          <span>Visível (Padrão)</span>
+                        </>
+                      )}
+                    </button>
                   </div>
 
                   {/* Store Name & WhatsApp */}
@@ -1467,6 +1752,159 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
               )}
 
+              {/* TAB 6: BANCO DE DADOS (FIREBASE) */}
+              {activeTab === 'database' && (
+                <div className="space-y-5">
+                  {/* Banner Informativo do Banco Conectado */}
+                  <div className="p-4 bg-stone-50 border border-stone-200 rounded-2xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-extrabold text-stone-800 flex items-center gap-1.5">
+                        <Database className="w-4 h-4 text-blue-600" />
+                        <span>Banco de Dados Conectado no Momento:</span>
+                      </span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase ${
+                        hasCustomDb ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-blue-100 text-blue-800 border border-blue-200'
+                      }`}>
+                        {hasCustomDb ? '✓ Banco Próprio Personalizado' : 'Banco Inicial da Loja'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
+                      <div className="bg-white p-2.5 rounded-xl border border-stone-200">
+                        <span className="text-[10px] text-stone-400 block font-bold">PROJECT ID</span>
+                        <span className="font-mono font-bold text-stone-800 truncate block">{currentConfig.projectId}</span>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-xl border border-stone-200">
+                        <span className="text-[10px] text-stone-400 block font-bold">FIRESTORE DATABASE ID</span>
+                        <span className="font-mono font-bold text-stone-800 truncate block">
+                          {currentConfig.firestoreDatabaseId || '(default)'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Instruções e Campo de Inserção */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                        <span>Cole abaixo os dados do novo Banco de Dados (Firebase):</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleFillSampleDb}
+                        className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                        <span>Inserir exemplo (lojabase1-9a4d4)</span>
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-stone-500">
+                      Você pode colar diretamente o objeto JavaScript ou JSON enviado. O sistema converterá automaticamente para a estrutura de <strong>firebase-applet-config.json</strong>.
+                    </p>
+
+                    <textarea
+                      rows={6}
+                      value={dbInputText}
+                      onChange={(e) => handleDbInputChange(e.target.value)}
+                      placeholder={`Cole aqui no formato:\n{\n  apiKey: "AIzaSy...",\n  authDomain: "lojabase1-9a4d4.firebaseapp.com",\n  projectId: "lojabase1-9a4d4",\n  storageBucket: "lojabase1-9a4d4.firebasestorage.app",\n  messagingSenderId: "1094336366479",\n  appId: "1:1094336366479:web:f7acb05482ccf71707adfa",\n  measurementId: "G-9L3Z7GYPQD"\n};`}
+                      className="w-full p-3 rounded-xl border border-stone-300 font-mono text-xs bg-white text-stone-900 outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  {/* Notificação de Erro */}
+                  {parseError && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl flex items-center gap-2 animate-in fade-in">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>{parseError}</span>
+                    </div>
+                  )}
+
+                  {/* Notificação de Sucesso */}
+                  {dbSuccessMsg && (
+                    <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-bold rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 animate-in fade-in">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>{dbSuccessMsg}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => window.location.reload()}
+                        className="px-3 py-1 bg-emerald-700 text-white rounded-lg text-xs font-bold shrink-0 hover:bg-emerald-800 cursor-pointer"
+                      >
+                        Recarregar Loja Agora
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Pré-visualização da Conversão para firebase-applet-config.json */}
+                  {parsedConfig && formattedJsonOutput && (
+                    <div className="space-y-2 p-3.5 bg-stone-900 text-white rounded-2xl border border-stone-800 animate-in fade-in">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold">
+                          <Check className="w-4 h-4" />
+                          <span>Convertido com Sucesso para firebase-applet-config.json:</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleCopyDbJson}
+                            className="text-[11px] bg-stone-800 hover:bg-stone-700 text-stone-200 px-2.5 py-1 rounded-lg flex items-center gap-1 font-semibold transition-colors cursor-pointer"
+                          >
+                            {copiedDbJson ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                            <span>{copiedDbJson ? 'Copiado!' : 'Copiar JSON'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleDownloadDbJson}
+                            className="text-[11px] bg-stone-800 hover:bg-stone-700 text-stone-200 px-2.5 py-1 rounded-lg flex items-center gap-1 font-semibold transition-colors cursor-pointer"
+                          >
+                            <Download className="w-3 h-3" />
+                            <span>Baixar Arquivo</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <pre className="font-mono text-[11px] leading-relaxed text-stone-300 bg-stone-950 p-3 rounded-xl overflow-x-auto max-h-48 border border-stone-800">
+                        {formattedJsonOutput}
+                      </pre>
+                    </div>
+                  )}
+
+                  {/* Botões de Ação */}
+                  <div className="space-y-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleSaveDatabaseConfig}
+                      disabled={!parsedConfig || isSavingDb}
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-3.5 px-4 rounded-2xl text-sm flex items-center justify-center gap-2 shadow-lg shadow-blue-700/25 active:scale-98 transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
+                    >
+                      {isSavingDb ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Atualizando Arquivo e Conexão...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4" />
+                          <span>Salvar no Arquivo firebase-applet-config.json & Ativar</span>
+                        </>
+                      )}
+                    </button>
+
+                    {hasCustomDb && (
+                      <button
+                        type="button"
+                        onClick={handleRestoreDefaultDatabase}
+                        className="w-full bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5 text-stone-500" />
+                        <span>Restaurar Banco de Dados Padrão Original</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
             </div>
           </div>
         )}
@@ -1492,6 +1930,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               {deleteConfirmation.type === 'category' && 'a categoria '}
               {deleteConfirmation.type === 'product' && 'o produto '}
               {deleteConfirmation.type === 'coupon' && 'o cupom '}
+              {deleteConfirmation.type === 'all_products' && 'todos os itens: '}
               <strong className="text-stone-900 font-extrabold">"{deleteConfirmation.name}"</strong>?
             </p>
 

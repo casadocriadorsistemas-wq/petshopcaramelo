@@ -19,6 +19,7 @@ interface ProductDetailsModalProps {
   onSelectForCustom: (product: Product) => void;
   onAddDirectUnit: (item: CartItem) => void;
   categoryName?: string;
+  hidePetBadges?: boolean;
 }
 
 export const ProductDetailsModal: React.FC<ProductDetailsModalProps> = ({
@@ -27,6 +28,7 @@ export const ProductDetailsModal: React.FC<ProductDetailsModalProps> = ({
   onSelectForCustom,
   onAddDirectUnit,
   categoryName,
+  hidePetBadges,
 }) => {
   const [unitQuantity, setUnitQuantity] = useState(1);
 
@@ -92,7 +94,7 @@ export const ProductDetailsModal: React.FC<ProductDetailsModalProps> = ({
         {/* Modal Top Header */}
         <div className="p-4 sm:p-5 border-b border-stone-100 flex items-center justify-between gap-3 shrink-0 bg-stone-50/70">
           <div className="flex flex-wrap items-center gap-1.5">
-            {petBadges.map((badge) => (
+            {!hidePetBadges && petBadges.map((badge) => (
               <span key={badge.id} className="bg-blue-100 text-blue-800 font-bold text-xs px-2.5 py-1 rounded-lg flex items-center gap-1.5">
                 <span>{badge.emoji}</span>
                 <span>{badge.label}</span>

@@ -22,6 +22,7 @@ interface CategoryFilterBarProps {
   selectedAnimal: string;
   onSelectAnimal: (animal: string) => void;
   promoCount?: number;
+  hidePetFilters?: boolean;
 }
 
 export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
@@ -33,6 +34,7 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
   selectedAnimal,
   onSelectAnimal,
   promoCount,
+  hidePetFilters,
 }) => {
   const getCategoryIcon = (iconName: string) => {
     switch (iconName.toLowerCase()) {
@@ -54,12 +56,12 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
   };
 
   return (
-    <div className="bg-white border-b border-stone-200 py-3 shadow-xs">
+    <div translate="no" className="notranslate bg-white border-b border-stone-200 py-3 shadow-xs">
       <div className="container mx-auto px-4 space-y-3">
         {/* Search Bar & Animal Quick Badges */}
-        <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
+        <div className={`flex flex-col ${hidePetFilters ? 'sm:flex-row' : 'sm:flex-row'} gap-2.5 items-stretch sm:items-center justify-between`}>
           {/* Search Input */}
-          <div className="relative flex-1 max-w-md">
+          <div className={`relative ${hidePetFilters ? 'w-full' : 'flex-1 max-w-md'}`}>
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" />
             <input
               type="text"
@@ -78,30 +80,32 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
             )}
           </div>
 
-          {/* Animal Type Filter Chips */}
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
-            {[
-              { id: 'all', label: 'Todos os Pets', emoji: '🐾' },
-              { id: 'dog', label: 'Cães', emoji: '🐕' },
-              { id: 'cat', label: 'Gatos', emoji: '🐈' },
-              { id: 'bird', label: 'Pássaros', emoji: '🦜' },
-              { id: 'fish', label: 'Peixes', emoji: '🐠' },
-              { id: 'other', label: 'Outros', emoji: '🐾' },
-            ].map((animal) => (
-              <button
-                key={animal.id}
-                onClick={() => onSelectAnimal(animal.id)}
-                className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  selectedAnimal === animal.id
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-                }`}
-              >
-                <span>{animal.emoji}</span>
-                <span>{animal.label}</span>
-              </button>
-            ))}
-          </div>
+          {/* Animal Type Filter Chips - Hidden if hidePetFilters is true */}
+          {!hidePetFilters && (
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+              {[
+                { id: 'all', label: 'Todos os Pets', emoji: '🐾' },
+                { id: 'dog', label: 'Cães', emoji: '🐕' },
+                { id: 'cat', label: 'Gatos', emoji: '🐈' },
+                { id: 'bird', label: 'Pássaros', emoji: '🦜' },
+                { id: 'fish', label: 'Peixes', emoji: '🐠' },
+                { id: 'other', label: 'Outros', emoji: '🐾' },
+              ].map((animal) => (
+                <button
+                  key={animal.id}
+                  onClick={() => onSelectAnimal(animal.id)}
+                  className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    selectedAnimal === animal.id
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+                  }`}
+                >
+                  <span>{animal.emoji}</span>
+                  <span>{animal.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Categories Horizontal Scroll */}
