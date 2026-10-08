@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, ShoppingCart, ArrowLeft, ArrowRight, X } from 'lucide-react';
+import { CheckCircle2, ShoppingCart, ArrowLeft, ArrowRight, X, Plus, Minus } from 'lucide-react';
 import { CartItem } from '../types';
 
 interface AddToCartChoiceModalProps {
@@ -8,6 +8,7 @@ interface AddToCartChoiceModalProps {
   totalCartCount: number;
   onContinueShopping: () => void;
   onGoToCart: () => void;
+  onUpdateQuantity?: (cartItemId: string, newQty: number) => void;
 }
 
 export const AddToCartChoiceModal: React.FC<AddToCartChoiceModalProps> = ({
@@ -16,6 +17,7 @@ export const AddToCartChoiceModal: React.FC<AddToCartChoiceModalProps> = ({
   totalCartCount,
   onContinueShopping,
   onGoToCart,
+  onUpdateQuantity,
 }) => {
   if (!isOpen || !item) return null;
 
@@ -55,6 +57,32 @@ export const AddToCartChoiceModal: React.FC<AddToCartChoiceModalProps> = ({
               R$ {item.totalPrice.toFixed(2).replace('.', ',')}
             </span>
           </div>
+
+          {(item.type === 'unit' || item.type === 'bag') && onUpdateQuantity && (
+            <div className="flex items-center gap-1 bg-white border border-stone-200/90 rounded-xl p-1 shadow-2xs shrink-0">
+              <button
+                type="button"
+                onClick={() => onUpdateQuantity(item.cartItemId, Math.max(1, item.quantity - 1))}
+                className="w-6 h-6 flex items-center justify-center rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 active:scale-90 font-bold transition-all text-xs"
+                title="Diminuir quantidade"
+                aria-label="Diminuir quantidade"
+              >
+                <Minus className="w-3 h-3" />
+              </button>
+              <span className="w-5 text-center font-black text-xs text-stone-900 select-none">
+                {item.quantity}
+              </span>
+              <button
+                type="button"
+                onClick={() => onUpdateQuantity(item.cartItemId, item.quantity + 1)}
+                className="w-6 h-6 flex items-center justify-center rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 active:scale-90 font-bold transition-all text-xs"
+                title="Aumentar quantidade"
+                aria-label="Aumentar quantidade"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Action Buttons */}

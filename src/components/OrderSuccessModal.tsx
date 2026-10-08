@@ -1,5 +1,6 @@
 import React from 'react';
-import { CheckCircle2, MessageCircle, Clock, X, ShoppingBag } from 'lucide-react';
+import { CheckCircle2, Clock, X, ShoppingBag } from 'lucide-react';
+import { WhatsAppIcon } from './WhatsAppIcon';
 import { StoreOpenStatus } from '../services/storeService';
 import { StoreSettings } from '../types';
 
@@ -43,9 +44,9 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
             </p>
           </div>
         ) : (
-          <div className="bg-blue-50 border border-blue-200 rounded-2xl p-3.5 text-xs text-blue-900 font-semibold flex items-center justify-center gap-2">
-            <MessageCircle className="w-4 h-4 text-blue-700" />
-            <span>Nossa equipe responderá sua mensagem em segundos!</span>
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3.5 text-xs text-emerald-950 font-semibold flex items-center justify-center gap-2">
+            <WhatsAppIcon className="w-4 h-4 fill-emerald-600 shrink-0" />
+            <span>Nossa equipe responderá sua mensagem no WhatsApp em segundos!</span>
           </div>
         )}
 

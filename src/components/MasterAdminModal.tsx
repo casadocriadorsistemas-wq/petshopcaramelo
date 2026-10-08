@@ -21,10 +21,16 @@ import {
   Download,
   Check,
   Sparkles,
-  RotateCcw
+  RotateCcw,
+  SlidersHorizontal
 } from 'lucide-react';
-import { SystemSubscription } from '../types';
-import { saveSubscription, checkIsSubscriptionExpired } from '../services/storeService';
+import { SystemSubscription, StoreSettings } from '../types';
+import { 
+  saveSubscription, 
+  checkIsSubscriptionExpired,
+  saveSettings,
+  getStoredSettings
+} from '../services/storeService';
 import { 
   parseFirebaseConfigInput, 
   FirebaseAppletConfig 
@@ -43,20 +49,29 @@ interface MasterAdminModalProps {
   isOpen: boolean;
   onClose: () => void;
   subscription: SystemSubscription;
+  settings?: StoreSettings;
+  onSettingsUpdated?: (settings: StoreSettings) => void;
 }
 
 export const MasterAdminModal: React.FC<MasterAdminModalProps> = ({
   isOpen,
   onClose,
   subscription,
+  settings,
+  onSettingsUpdated,
 }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
 
-  // Active Tab: 'subscription' | 'database'
-  const [activeTab, setActiveTab] = useState<'subscription' | 'database'>('subscription');
+  // Active Tab: 'subscription' | 'pet_mode' | 'database'
+  const [activeTab, setActiveTab] = useState<'subscription' | 'pet_mode' | 'database'>('subscription');
+  
+  // Settings & Pet Mode State
+  const [currentSettings, setCurrentSettings] = useState<StoreSettings>(() => settings || getStoredSettings());
+  const [isSavingPetMode, setIsSavingPetMode] = useState(false);
+  const [petSuccessMsg, setPetSuccessMsg] = useState('');
   
   // Subscription Form values
   const [monthlyFee, setMonthlyFee] = useState<number>(subscription.monthlyFee || 150);
@@ -88,11 +103,16 @@ export const MasterAdminModal: React.FC<MasterAdminModalProps> = ({
       setIsExpiredManual(subscription.isExpiredManualOverride || false);
       setNotes(subscription.notes || '');
     }
+    if (settings) {
+      setCurrentSettings(settings);
+    } else {
+      setCurrentSettings(getStoredSettings());
+    }
     if (isOpen) {
       setCurrentConfig(getActiveFirebaseConfig());
       setHasCustomDb(isUsingCustomFirebaseConfig());
     }
-  }, [subscription, isOpen]);
+  }, [subscription, settings, isOpen]);
 
   // Handle parsing database config when input changes
   const handleDbInputChange = (text: string) => {
@@ -260,6 +280,36 @@ export const MasterAdminModal: React.FC<MasterAdminModalProps> = ({
     isExpiredManualOverride: isExpiredManual,
   });
 
+  const isPetModeDisabled = Boolean(currentSettings.disablePetMode || currentSettings.hidePetFilters);
+
+  const handleTogglePetMode = async () => {
+    setIsSavingPetMode(true);
+    setPetSuccessMsg('');
+    try {
+      const nextValue = !isPetModeDisabled;
+      const updated: StoreSettings = {
+        ...currentSettings,
+        disablePetMode: nextValue,
+        hidePetFilters: nextValue,
+      };
+      setCurrentSettings(updated);
+      await saveSettings(updated);
+      if (onSettingsUpdated) {
+        onSettingsUpdated(updated);
+      }
+      setPetSuccessMsg(
+        nextValue
+          ? '✓ Modo Pet desabilitado com sucesso! A opção "Tipo de Pet" foi ocultada na Área do Lojista, os filtros por animais foram removidos da página inicial e o informativo de ração a granel foi ocultado.'
+          : '✓ Modo Pet reativado com sucesso! As opções de pet, filtros e informativos voltaram a ficar visíveis.'
+      );
+      setTimeout(() => setPetSuccessMsg(''), 5000);
+    } catch (err) {
+      console.error('Error toggling pet mode:', err);
+    } finally {
+      setIsSavingPetMode(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md animate-in fade-in overflow-y-auto">
       <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col my-auto animate-in zoom-in-95 max-h-[92vh]">
@@ -272,7 +322,7 @@ export const MasterAdminModal: React.FC<MasterAdminModalProps> = ({
             </div>
             <div>
               <h3 className="font-extrabold text-base">Painel Master do Administrador</h3>
-              <p className="text-[11px] text-stone-400">Mensalidade, Expiração e Configuração do Banco de Dados</p>
+              <p className="text-[11px] text-stone-400">Mensalidade, Desabilitar Modo Pet e Banco de Dados</p>
             </div>
           </div>
           <button
@@ -335,11 +385,11 @@ export const MasterAdminModal: React.FC<MasterAdminModalProps> = ({
           <div className="flex flex-col flex-1 overflow-hidden">
             
             {/* Tab Navigation */}
-            <div className="bg-stone-50 border-b border-stone-200 px-4 sm:px-6 pt-3 flex gap-2 shrink-0">
+            <div className="bg-stone-50 border-b border-stone-200 px-4 sm:px-6 pt-3 flex gap-2 shrink-0 overflow-x-auto no-scrollbar">
               <button
                 type="button"
                 onClick={() => setActiveTab('subscription')}
-                className={`pb-3 px-3 text-xs font-extrabold border-b-2 flex items-center gap-1.5 transition-all ${
+                className={`pb-3 px-3 text-xs font-extrabold border-b-2 flex items-center gap-1.5 transition-all whitespace-nowrap ${
                   activeTab === 'subscription'
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-stone-500 hover:text-stone-800'
@@ -351,8 +401,28 @@ export const MasterAdminModal: React.FC<MasterAdminModalProps> = ({
 
               <button
                 type="button"
+                onClick={() => setActiveTab('pet_mode')}
+                className={`pb-3 px-3 text-xs font-extrabold border-b-2 flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                  activeTab === 'pet_mode'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-stone-500 hover:text-stone-800'
+                }`}
+              >
+                <SlidersHorizontal className="w-4 h-4" />
+                <span>Desabilitar Modo Pet</span>
+                {isPetModeDisabled ? (
+                  <span className="text-[10px] bg-amber-100 text-amber-900 font-extrabold px-1.5 py-0.2 rounded-full border border-amber-300">
+                    Oculto
+                  </span>
+                ) : (
+                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                )}
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setActiveTab('database')}
-                className={`pb-3 px-3 text-xs font-extrabold border-b-2 flex items-center gap-1.5 transition-all ${
+                className={`pb-3 px-3 text-xs font-extrabold border-b-2 flex items-center gap-1.5 transition-all whitespace-nowrap ${
                   activeTab === 'database'
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-stone-500 hover:text-stone-800'
@@ -552,7 +622,130 @@ export const MasterAdminModal: React.FC<MasterAdminModalProps> = ({
                 </div>
               )}
 
-              {/* TAB 2: BANCO DE DADOS (FIREBASE) */}
+              {/* TAB 2: DESABILITAR MODO PET */}
+              {activeTab === 'pet_mode' && (
+                <div className="space-y-5">
+                  {/* Status do Modo Pet */}
+                  <div className={`p-4 rounded-2xl border flex items-start gap-3.5 ${
+                    isPetModeDisabled
+                      ? 'bg-amber-50 border-amber-200 text-amber-900'
+                      : 'bg-blue-50 border-blue-200 text-blue-900'
+                  }`}>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
+                      isPetModeDisabled ? 'bg-amber-500 text-stone-950' : 'bg-blue-600 text-white'
+                    }`}>
+                      {isPetModeDisabled ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-extrabold text-xs uppercase tracking-wider block">
+                          Status do Catálogo:
+                        </span>
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase ${
+                          isPetModeDisabled 
+                            ? 'bg-amber-200 text-amber-950 border border-amber-300' 
+                            : 'bg-emerald-100 text-emerald-950 border border-emerald-300'
+                        }`}>
+                          {isPetModeDisabled ? 'MODO PET DESABILITADO (OCULTO)' : 'MODO PET HABILITADO (ATIVO)'}
+                        </span>
+                      </div>
+                      <p className="font-extrabold text-sm sm:text-base mt-1 text-stone-900">
+                        {isPetModeDisabled
+                          ? 'O Modo Pet está Desabilitado no Sistema'
+                          : 'O Modo Pet está Ativo no Sistema'}
+                      </p>
+                      <p className="text-xs mt-1 text-stone-600 leading-relaxed">
+                        {isPetModeDisabled
+                          ? 'A opção "Tipo de Pet" foi ocultada da Área do Lojista, os filtros por animais foram removidos da página principal e o informativo de ração a granel por kg/reais foi ocultado em todos os modos de visualização.'
+                          : 'O catálogo funciona como pet shop completo: exibe filtros de animais (cães, gatos, etc.), seleção de tipo de pet no cadastro do lojista e o informativo de ração a granel por kg ou reais.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Mensagem de Confirmação */}
+                  {petSuccessMsg && (
+                    <div className="p-3.5 bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-bold rounded-xl flex items-center gap-2 animate-in fade-in">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>{petSuccessMsg}</span>
+                    </div>
+                  )}
+
+                  {/* Card Principal de Ação - Botão Exclusivo do Administrador */}
+                  <div className="p-5 bg-stone-50 border border-stone-200 rounded-2xl space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-extrabold text-stone-900 text-sm sm:text-base flex items-center gap-2">
+                          <SlidersHorizontal className="w-4 h-4 text-blue-600" />
+                          <span>Configuração de Visualização</span>
+                        </h4>
+                        <p className="text-xs text-stone-500 mt-0.5">
+                          Função exclusiva do administrador (não disponível na área do lojista).
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={handleTogglePetMode}
+                        disabled={isSavingPetMode}
+                        className={`w-full py-4 px-5 rounded-2xl text-sm font-extrabold flex items-center justify-center gap-2.5 transition-all shadow-md active:scale-98 cursor-pointer ${
+                          isPetModeDisabled
+                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-700/25'
+                            : 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-700/25'
+                        }`}
+                      >
+                        {isSavingPetMode ? (
+                          <>
+                            <RefreshCw className="w-5 h-5 animate-spin" />
+                            <span>Salvando Alteração...</span>
+                          </>
+                        ) : isPetModeDisabled ? (
+                          <>
+                            <Eye className="w-5 h-5" />
+                            <span>Reativar Modo Pet</span>
+                          </>
+                        ) : (
+                          <>
+                            <EyeOff className="w-5 h-5" />
+                            <span>Desabilitar Modo Pet</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-xl border border-stone-200 space-y-2.5 text-xs text-stone-700">
+                      <p className="font-bold text-stone-900 text-xs uppercase tracking-wide">
+                        Efeito imediato de "Desabilitar Modo Pet":
+                      </p>
+                      <ul className="space-y-2 list-none pl-0">
+                        <li className="flex items-start gap-2">
+                          <span className="text-blue-600 font-bold shrink-0">1.</span>
+                          <span><strong>Oculta a opção "Tipo de Pet":</strong> No cadastro e edição de produtos dentro da Área do Lojista (os botões de Cães, Gatos, Pássaros, Peixes e Outros desaparecem).</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-blue-600 font-bold shrink-0">2.</span>
+                          <span><strong>Oculta os filtros na página principal:</strong> As opções de filtrar por animais no topo da tela inicial são removidas da visualização dos clientes.</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-blue-600 font-bold shrink-0">3.</span>
+                          <span><strong>Oculta o informativo "Ração a Granel por Kg ou Reais":</strong> O banner promocional de ração a granel é ocultado em todos os modos de visualização (computador, tablet e celular).</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-blue-600 font-bold shrink-0">4.</span>
+                          <span><strong>Adapta o texto de atendimento:</strong> Altera o informativo de estoque para <em>"Fale com a gente, atenderemos em segundos! trabalhamos com a principais marcas do mercado em nosso estoque físico, com preços especiais"</em>.</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-blue-600 font-bold shrink-0">5.</span>
+                          <span><strong>Atualiza a barra de pesquisa:</strong> Altera a sugestão na busca da página principal para <em>"Pesquisar produtos..."</em>.</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: BANCO DE DADOS (FIREBASE) */}
               {activeTab === 'database' && (
                 <div className="space-y-5">
                   {/* Banner Informativo do Banco Conectado */}

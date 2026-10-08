@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Plus, 
+  Minus,
   Scale, 
   Package, 
   Check, 
@@ -24,6 +25,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   onOpenDetails,
   hidePetBadges,
 }) => {
+  const [unitQuantity, setUnitQuantity] = useState(1);
   const isRation = product.sellMode === 'bag_and_bulk' || product.sellMode === 'bag_only' || product.sellMode === 'bulk_only';
 
   const handleAction = () => {
@@ -32,17 +34,18 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     } else {
       // Direct unit item
       const unitPrice = product.unitPrice || 0;
+      const qty = Math.max(1, unitQuantity);
       const item: CartItem = {
         cartItemId: `${product.id}-unit-${Date.now()}`,
         productId: product.id,
         productName: product.name,
         imageUrl: product.imageUrl,
         type: 'unit',
-        label: `1x ${product.unitLabel || 'unidade'}`,
+        label: `${qty}x ${product.unitLabel || 'unidade'}`,
         details: product.unitLabel ? `Embalagem: ${product.unitLabel}` : 'Item unitário',
         unitPrice: unitPrice,
-        quantity: 1,
-        totalPrice: unitPrice,
+        quantity: qty,
+        totalPrice: unitPrice * qty,
       };
       onAddDirectUnit(item);
     }
@@ -200,15 +203,53 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           )}
 
           {product.sellMode === 'unit' && (
-            <div>
-              <span className="text-[11px] text-stone-500 block">
-                {product.unitLabel ? `Preço por ${product.unitLabel}:` : 'Preço:'}
-              </span>
-              <div className="flex items-baseline gap-1">
-                <span className="text-lg font-black text-stone-900">
-                  R$ {product.unitPrice?.toFixed(2).replace('.', ',')}
+            <div className="flex items-end justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <span className="text-[11px] text-stone-500 block truncate">
+                  {product.unitLabel ? `Preço por ${product.unitLabel}:` : 'Preço:'}
                 </span>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-lg font-black text-stone-900">
+                    R$ {product.unitPrice?.toFixed(2).replace('.', ',')}
+                  </span>
+                </div>
               </div>
+
+              {/* Seletor de Quantidade do Item Unitário */}
+              {product.inStock && (
+                <div 
+                  className="flex items-center bg-stone-100 border border-stone-200/90 rounded-xl p-0.5 shadow-2xs"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setUnitQuantity((q) => Math.max(1, q - 1));
+                    }}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-white hover:bg-stone-200 text-stone-700 active:scale-90 font-bold transition-all shadow-2xs"
+                    title="Diminuir quantidade"
+                    aria-label="Diminuir quantidade"
+                  >
+                    <Minus className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="w-7 text-center font-black text-xs sm:text-sm text-stone-900 select-none">
+                    {unitQuantity}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setUnitQuantity((q) => q + 1);
+                    }}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-white hover:bg-stone-200 text-stone-700 active:scale-90 font-bold transition-all shadow-2xs"
+                    title="Aumentar quantidade"
+                    aria-label="Aumentar quantidade"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -224,10 +265,21 @@ export const ProductCard: React.FC<ProductCardProps> = ({
                 : 'bg-stone-900 hover:bg-stone-800 text-white active:scale-98'
             }`}
           >
-            <Plus className="w-4 h-4" />
-            <span>
-              {isRation ? 'Escolher Quantidade' : 'Adicionar ao Carrinho'}
-            </span>
+            {isRation ? (
+              <>
+                <Scale className="w-4 h-4" />
+                <span>Escolher Quantidade</span>
+              </>
+            ) : (
+              <>
+                <Plus className="w-4 h-4" />
+                <span>
+                  {unitQuantity > 1
+                    ? `Adicionar ${unitQuantity} un. • R$ ${((product.unitPrice || 0) * unitQuantity).toFixed(2).replace('.', ',')}`
+                    : 'Adicionar ao Carrinho'}
+                </span>
+              </>
+            )}
           </button>
         </div>
       </div>

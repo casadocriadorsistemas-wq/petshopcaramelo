@@ -250,6 +250,8 @@ export const DEFAULT_SETTINGS: StoreSettings = {
   whatsappHelpNotice: 'Fale com a gente no WhatsApp • Atenderemos em segundos!',
   adminPassword: '1234',
   hidePetFilters: false,
+  disablePetMode: false,
+  logoUrl: '',
 };
 
 export const DEFAULT_SUBSCRIPTION: SystemSubscription = {

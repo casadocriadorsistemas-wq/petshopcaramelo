@@ -61,6 +61,8 @@ import {
   DEFAULT_SETTINGS,
   DEFAULT_SUBSCRIPTION 
 } from './data/defaultData';
+import { updateAppBranding } from './services/pwaService';
+import { WhatsAppIcon } from './components/WhatsAppIcon';
 import { 
   subscribeProducts, 
   subscribeCategories, 
@@ -81,7 +83,6 @@ import {
   ShieldCheck, 
   Heart,
   Truck,
-  PhoneCall,
   Lock
 } from 'lucide-react';
 
@@ -168,6 +169,11 @@ export default function App() {
     } catch {}
   }, [cartItems]);
 
+  // Sync PWA Branding (Favicon, Apple icon, Web App Manifest) with store settings
+  useEffect(() => {
+    updateAppBranding(settings.logoUrl, settings.storeName);
+  }, [settings.logoUrl, settings.storeName]);
+
   // Compute Store Open/Closed status
   const openStatus = checkStoreOpenStatus(settings);
 
@@ -183,6 +189,8 @@ export default function App() {
           isOpen={isMasterAdminOpen}
           onClose={() => setIsMasterAdminOpen(false)}
           subscription={subscription}
+          settings={settings}
+          onSettingsUpdated={setSettings}
         />
       </div>
     );
@@ -190,24 +198,58 @@ export default function App() {
 
   // Cart handlers
   const handleAddToCart = (item: CartItem) => {
-    setCartItems(prev => [item, ...prev]);
-    setAddedChoiceItem(item);
+    let finalItem = item;
+    setCartItems(prev => {
+      const existingIdx = prev.findIndex(
+        i => i.productId === item.productId && i.type === item.type && i.unitPrice === item.unitPrice && i.details === item.details
+      );
+      if (existingIdx > -1 && (item.type === 'unit' || item.type === 'bag')) {
+        const updated = [...prev];
+        const existing = updated[existingIdx];
+        const newQty = existing.quantity + item.quantity;
+        const labelBase = existing.label.replace(/^\d+x\s*/, '');
+        const updatedItem: CartItem = {
+          ...existing,
+          quantity: newQty,
+          label: `${newQty}x ${labelBase || (existing.type === 'unit' ? 'unidade' : 'saco')}`,
+          totalPrice: existing.unitPrice * newQty,
+        };
+        updated[existingIdx] = updatedItem;
+        finalItem = updatedItem;
+        return updated;
+      }
+      return [item, ...prev];
+    });
+    setAddedChoiceItem(finalItem);
   };
 
   const handleRemoveCartItem = (cartItemId: string) => {
     setCartItems(prev => prev.filter(i => i.cartItemId !== cartItemId));
+    if (addedChoiceItem?.cartItemId === cartItemId) {
+      setAddedChoiceItem(null);
+    }
   };
 
   const handleUpdateCartQuantity = (cartItemId: string, newQty: number) => {
+    if (newQty <= 0) {
+      handleRemoveCartItem(cartItemId);
+      return;
+    }
     setCartItems(prev =>
       prev.map(i => {
         if (i.cartItemId === cartItemId) {
           const unitP = i.unitPrice;
-          return {
+          const labelBase = i.label.replace(/^\d+x\s*/, '');
+          const updatedItem: CartItem = {
             ...i,
             quantity: newQty,
+            label: `${newQty}x ${labelBase || (i.type === 'unit' ? 'unidade' : 'saco')}`,
             totalPrice: unitP * newQty,
           };
+          if (addedChoiceItem?.cartItemId === cartItemId) {
+            setAddedChoiceItem(updatedItem);
+          }
+          return updatedItem;
         }
         return i;
       })
@@ -227,6 +269,9 @@ export default function App() {
     setIsSuccessOpen(true);
   };
 
+  // Pet Mode disabled check (controls lojista pet option, main filters and bulk notice)
+  const isPetModeDisabled = Boolean(settings.disablePetMode || settings.hidePetFilters);
+
   // Filter products
   const filteredProducts = products.filter(p => {
     // Category or Promotions filter
@@ -237,8 +282,8 @@ export default function App() {
     } else if (selectedCategoryId !== 'all' && p.categoryId !== selectedCategoryId) {
       return false;
     }
-    // Animal filter (Cães, Gatos, Pássaros, Peixes, Outros) - Ignored when hidePetFilters is true
-    if (!settings.hidePetFilters && selectedAnimal !== 'all') {
+    // Animal filter (Cães, Gatos, Pássaros, Peixes, Outros) - Ignored when isPetModeDisabled is true
+    if (!isPetModeDisabled && selectedAnimal !== 'all') {
       const productPets: string[] = (p.animalTypes && p.animalTypes.length > 0)
         ? p.animalTypes
         : p.animalType
@@ -272,7 +317,7 @@ export default function App() {
       <Header
         settings={settings}
         openStatus={openStatus}
-        cartCount={cartItems.length}
+        cartCount={cartItems.reduce((acc, curr) => acc + (curr.quantity || 1), 0)}
         onOpenCart={() => setIsCartOpen(true)}
         onOpenAdmin={() => setIsAdminOpen(true)}
       />
@@ -283,9 +328,9 @@ export default function App() {
       {/* 3. Hero Feature Cards */}
       <section translate="no" className="notranslate bg-gradient-to-b from-white to-stone-100 border-b border-stone-200/80 py-4 sm:py-6">
         <div className="container mx-auto px-4">
-          <div className={`grid grid-cols-1 ${settings.hidePetFilters ? 'sm:grid-cols-2 max-w-4xl mx-auto' : 'sm:grid-cols-2 md:grid-cols-3'} gap-3`}>
-            {/* Informativo Ração a Granel por Kg ou Reais - Oculto em todos os modos se hidePetFilters estiver ativo */}
-            {!settings.hidePetFilters && (
+          <div className={`grid grid-cols-1 ${isPetModeDisabled ? 'sm:grid-cols-2 max-w-4xl mx-auto' : 'sm:grid-cols-2 md:grid-cols-3'} gap-3`}>
+            {/* Informativo Ração a Granel por Kg ou Reais - Oculto em todos os modos se isPetModeDisabled estiver ativo */}
+            {!isPetModeDisabled && (
               <div className="bg-blue-50/80 border border-blue-200/80 rounded-2xl p-3.5 flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm">
                   <Scale className="w-5 h-5" />
@@ -315,15 +360,15 @@ export default function App() {
               </div>
             </div>
 
-            <div className="bg-sky-50/80 border border-sky-200/80 rounded-2xl p-3.5 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-sky-600 text-white flex items-center justify-center shrink-0 shadow-sm">
-                <PhoneCall className="w-5 h-5" />
+            <div className="bg-emerald-50/80 border border-emerald-200/80 rounded-2xl p-3.5 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#25D366] text-white flex items-center justify-center shrink-0 shadow-sm">
+                <WhatsAppIcon className="w-5 h-5 fill-white" />
               </div>
               <div>
-                <h2 className="font-extrabold text-xs sm:text-sm text-sky-950">
+                <h2 className="font-extrabold text-xs sm:text-sm text-emerald-950">
                   Sem Login e Direto no WhatsApp
                 </h2>
-                <p className="text-[11px] text-sky-800">
+                <p className="text-[11px] text-emerald-800">
                   Escolha seus itens e receba atendimento personalizado em segundos!
                 </p>
               </div>
@@ -342,7 +387,7 @@ export default function App() {
         selectedAnimal={selectedAnimal}
         onSelectAnimal={setSelectedAnimal}
         promoCount={promoCount}
-        hidePetFilters={settings.hidePetFilters}
+        hidePetFilters={isPetModeDisabled}
       />
 
       {/* 5. Main Catalog Grid */}
@@ -366,7 +411,9 @@ export default function App() {
             <p className="text-xs text-stone-500 mt-0.5">
               {selectedCategoryId === 'promotions'
                 ? 'Aproveite os melhores preços e ofertas especiais da loja!'
-                : 'Clique em "Escolher Quantidade" para rações a granel ou por saco'}
+                : (isPetModeDisabled
+                    ? 'Clique no produto para ver detalhes e adicionar ao carrinho'
+                    : 'Clique em "Escolher Quantidade" para rações a granel ou por saco')}
             </p>
           </div>
         </div>
@@ -411,7 +458,7 @@ export default function App() {
                 onSelectForCustom={setSelectedProductForCustom}
                 onAddDirectUnit={handleAddToCart}
                 onOpenDetails={setSelectedProductForDetails}
-                hidePetBadges={settings.hidePetFilters}
+                hidePetBadges={isPetModeDisabled}
               />
             ))}
           </div>
@@ -430,7 +477,9 @@ export default function App() {
                 Não encontrou o que está procurando?
               </h3>
               <p className="text-blue-100 text-sm font-medium">
-                Fale com a gente, atenderemos em segundos! Temos marcas especiais de rações, petiscos e medicamentos em nosso estoque físico.
+                {isPetModeDisabled
+                  ? 'Fale com a gente, atenderemos em segundos! trabalhamos com a principais marcas do mercado em nosso estoque físico, com preços especiais'
+                  : 'Fale com a gente, atenderemos em segundos! Temos marcas especiais de rações, petiscos e medicamentos em nosso estoque físico.'}
               </p>
             </div>
 
@@ -441,9 +490,9 @@ export default function App() {
               target="_blank"
               rel="noopener noreferrer"
               translate="no"
-              className="notranslate bg-blue-600 hover:bg-blue-500 text-white font-black px-6 py-4 rounded-2xl text-sm sm:text-base shadow-lg shadow-blue-950/30 flex items-center justify-center gap-2.5 transition-all transform hover:scale-105 active:scale-95 shrink-0"
+              className="notranslate bg-[#25D366] hover:bg-[#20ba5a] text-white font-black px-6 py-4 rounded-2xl text-sm sm:text-base shadow-lg shadow-emerald-950/30 flex items-center justify-center gap-2.5 transition-all transform hover:scale-105 active:scale-95 shrink-0"
             >
-              <PhoneCall className="w-5 h-5 text-white" />
+              <WhatsAppIcon className="w-5 h-5 fill-white" />
               <span translate="no" className="notranslate">Falar no WhatsApp</span>
             </a>
           </div>
@@ -530,7 +579,7 @@ export default function App() {
             setSelectedProductForDetails(null);
             handleAddToCart(item);
           }}
-          hidePetBadges={settings.hidePetFilters}
+          hidePetBadges={isPetModeDisabled}
         />
       )}
 
@@ -588,13 +637,14 @@ export default function App() {
       />
       <AddToCartChoiceModal
         isOpen={!!addedChoiceItem}
-        item={addedChoiceItem}
-        totalCartCount={cartItems.length}
+        item={addedChoiceItem ? cartItems.find(i => i.cartItemId === addedChoiceItem.cartItemId) || addedChoiceItem : null}
+        totalCartCount={cartItems.reduce((acc, curr) => acc + (curr.quantity || 1), 0)}
         onContinueShopping={() => setAddedChoiceItem(null)}
         onGoToCart={() => {
           setAddedChoiceItem(null);
           setIsCartOpen(true);
         }}
+        onUpdateQuantity={handleUpdateCartQuantity}
       />
 
       {/* Master Admin Modal (xT7$mQ2!vB9#) */}
@@ -602,6 +652,8 @@ export default function App() {
         isOpen={isMasterAdminOpen}
         onClose={() => setIsMasterAdminOpen(false)}
         subscription={subscription}
+        settings={settings}
+        onSettingsUpdated={setSettings}
       />
     </div>
   );

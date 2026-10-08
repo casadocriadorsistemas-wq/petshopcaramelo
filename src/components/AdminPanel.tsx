@@ -19,16 +19,11 @@ import {
   Download,
   Upload,
   Image as ImageIcon,
-  Database,
-  Sparkles,
-  Copy,
-  RotateCcw,
   CheckCircle2,
   AlertTriangle,
   RefreshCw,
   Eye,
-  EyeOff,
-  SlidersHorizontal
+  Store
 } from 'lucide-react';
 import { Product, Category, Coupon, StoreSettings, OrderRecord, SellMode, AnimalType } from '../types';
 import { 
@@ -45,16 +40,6 @@ import {
 } from '../services/storeService';
 import { downloadTemplateExcel, exportProductsToExcel } from '../services/excelService';
 import { ImportExcelModal } from './ImportExcelModal';
-import { 
-  getActiveFirebaseConfig, 
-  isUsingCustomFirebaseConfig, 
-  saveActiveFirebaseConfig, 
-  resetToDefaultFirebaseConfig 
-} from '../lib/firebase';
-import { 
-  parseFirebaseConfigInput, 
-  FirebaseAppletConfig 
-} from '../services/firebaseConfigParser';
 
 interface AdminPanelProps {
   isOpen: boolean;
@@ -77,7 +62,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   orders,
   onSettingsUpdated,
 }) => {
-  const [activeTab, setActiveTab] = useState<'products' | 'categories' | 'coupons' | 'settings' | 'orders' | 'database'>('products');
+  const [activeTab, setActiveTab] = useState<'products' | 'categories' | 'coupons' | 'settings' | 'orders'>('products');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
@@ -115,28 +100,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isImportExcelOpen, setIsImportExcelOpen] = useState(false);
+  const logoFileInputRef = React.useRef<HTMLInputElement>(null);
 
-  // Database Tab state (Request 6)
-  const [currentConfig, setCurrentConfig] = useState<FirebaseAppletConfig>(getActiveFirebaseConfig());
-  const [hasCustomDb, setHasCustomDb] = useState<boolean>(isUsingCustomFirebaseConfig());
-  const [dbInputText, setDbInputText] = useState('');
-  const [parsedConfig, setParsedConfig] = useState<FirebaseAppletConfig | null>(null);
-  const [formattedJsonOutput, setFormattedJsonOutput] = useState('');
-  const [parseError, setParseError] = useState('');
-  const [dbSuccessMsg, setDbSuccessMsg] = useState('');
-  const [isSavingDb, setIsSavingDb] = useState(false);
-  const [copiedDbJson, setCopiedDbJson] = useState(false);
+  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setFormSettings(prev => ({ ...prev, logoUrl: base64 }));
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Sync formSettings when settings prop updates
   useEffect(() => {
     if (settings) {
       setFormSettings({ ...settings });
     }
-    if (isOpen) {
-      setCurrentConfig(getActiveFirebaseConfig());
-      setHasCustomDb(isUsingCustomFirebaseConfig());
-    }
-  }, [settings, isOpen]);
+  }, [settings]);
 
   // Reset image load error when editing product image changes
   useEffect(() => {
@@ -173,103 +155,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     } else {
       setPinError('Senha incorreta! Digite a senha cadastrada no painel.');
     }
-  };
-
-  // Database Tab handlers (Request 6)
-  const handleDbInputChange = (text: string) => {
-    setDbInputText(text);
-    setDbSuccessMsg('');
-    if (!text.trim()) {
-      setParsedConfig(null);
-      setFormattedJsonOutput('');
-      setParseError('');
-      return;
-    }
-
-    const result = parseFirebaseConfigInput(text);
-    if (result.success && result.config && result.formattedJson) {
-      setParsedConfig(result.config);
-      setFormattedJsonOutput(result.formattedJson);
-      setParseError('');
-    } else {
-      setParsedConfig(null);
-      setFormattedJsonOutput('');
-      setParseError(result.error || 'Formato inválido. Insira o objeto com apiKey, projectId, appId.');
-    }
-  };
-
-  const handleFillSampleDb = () => {
-    const sample = `{\n  apiKey: "AIzaSyCWdj8oW7mBlIloEJdyXN3_N4btg203FlM",\n  authDomain: "lojabase1-9a4d4.firebaseapp.com",\n  projectId: "lojabase1-9a4d4",\n  storageBucket: "lojabase1-9a4d4.firebasestorage.app",\n  messagingSenderId: "1094336366479",\n  appId: "1:1094336366479:web:f7acb05482ccf71707adfa",\n  measurementId: "G-9L3Z7GYPQD"\n};`;
-    handleDbInputChange(sample);
-  };
-
-  const handleCopyDbJson = () => {
-    if (!formattedJsonOutput) return;
-    navigator.clipboard.writeText(formattedJsonOutput);
-    setCopiedDbJson(true);
-    setTimeout(() => setCopiedDbJson(false), 2500);
-  };
-
-  const handleDownloadDbJson = () => {
-    if (!formattedJsonOutput) return;
-    const blob = new Blob([formattedJsonOutput], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'firebase-applet-config.json';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleSaveDatabaseConfig = async () => {
-    if (!parsedConfig) return;
-    setIsSavingDb(true);
-    setDbSuccessMsg('');
-
-    try {
-      // 1. Save in active localStorage
-      saveActiveFirebaseConfig(parsedConfig);
-
-      // 2. Persist to disk /firebase-applet-config.json via server endpoint
-      let fileSavedOnDisk = false;
-      try {
-        const response = await fetch('/api/save-firebase-config', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(parsedConfig, null, 2),
-        });
-        if (response.ok) {
-          fileSavedOnDisk = true;
-        }
-      } catch (e) {
-        console.warn('File save API note:', e);
-      }
-
-      setCurrentConfig(parsedConfig);
-      setHasCustomDb(true);
-      setDbSuccessMsg(
-        fileSavedOnDisk
-          ? '✓ Sucesso! O arquivo firebase-applet-config.json foi atualizado no disco e o banco ativado!'
-          : '✓ Sucesso! Configuração gravada e ativada no sistema!'
-      );
-    } catch (err: any) {
-      setParseError(err.message || 'Erro ao salvar novo banco de dados.');
-    } finally {
-      setIsSavingDb(false);
-    }
-  };
-
-  const handleRestoreDefaultDatabase = async () => {
-    resetToDefaultFirebaseConfig();
-    try {
-      const response = await fetch('/api/save-firebase-config');
-      if (response.ok) {
-        const diskConfig = await response.json();
-        setCurrentConfig(diskConfig);
-      }
-    } catch {}
-    setHasCustomDb(false);
-    setDbSuccessMsg('✓ Banco de dados restaurado para a configuração inicial! Recarregue a página.');
   };
 
   // Product Actions
@@ -604,8 +489,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </div>
                       </div>
 
-                      {/* Pet Type Multi-Selector for filtering (Hidden if hidePetFilters is active) */}
-                      {!formSettings.hidePetFilters && (
+                      {/* Pet Type Multi-Selector for filtering (Hidden if disablePetMode is active) */}
+                      {!(formSettings.disablePetMode || formSettings.hidePetFilters) && (
                         <div>
                           <div className="flex items-center justify-between mb-1.5">
                             <label className="text-xs font-bold text-stone-700">
@@ -1105,7 +990,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   <h4 className="font-extrabold text-stone-900 text-xs sm:text-sm truncate">
                                     {prod.name}
                                   </h4>
-                                  {!formSettings.hidePetFilters && ((prod.animalTypes && prod.animalTypes.length > 0) ? prod.animalTypes : [prod.animalType || 'dog']).map((at) => (
+                                  {!(formSettings.disablePetMode || formSettings.hidePetFilters) && ((prod.animalTypes && prod.animalTypes.length > 0) ? prod.animalTypes : [prod.animalType || 'dog']).map((at) => (
                                     <span key={at} className="bg-stone-100 border border-stone-200 text-stone-700 px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0">
                                       {at === 'dog' && '🐕 Cão'}
                                       {at === 'cat' && '🐈 Gato'}
@@ -1405,46 +1290,113 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
                   </div>
 
-                  {/* Controle de Visibilidade: Tipo de Pet, Filtros e Banner de Granel */}
-                  <div className="p-4 bg-stone-50 border border-stone-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <SlidersHorizontal className="w-4 h-4 text-blue-600" />
-                        <h4 className="font-extrabold text-stone-900 text-xs sm:text-sm">
-                          Ocultar Opção Tipo de Pet e Informativo de Granel
-                        </h4>
-                        {formSettings.hidePetFilters && (
-                          <span className="bg-amber-100 text-amber-900 text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-300 uppercase tracking-wider">
-                            Ocultação Ativa
-                          </span>
-                        )}
+                  {/* Logo da Empresa (Ícone ao lado do nome e aplicativo) */}
+                  <div className="p-4 bg-stone-50 border border-stone-200 rounded-2xl space-y-3 shadow-xs">
+                    <div className="flex items-start sm:items-center justify-between gap-2 flex-col sm:flex-row">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <ImageIcon className="w-4 h-4 text-blue-600" />
+                          <h4 className="font-extrabold text-stone-900 text-xs sm:text-sm">
+                            Logo da Empresa (Ícone ao lado do nome)
+                          </h4>
+                          {formSettings.logoUrl && (
+                            <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full border border-emerald-300">
+                              Logo Ativa
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-stone-600 leading-relaxed max-w-xl">
+                          Esta imagem substitui o ícone de casinha ao lado do nome da loja no topo da página e é exibida no ícone de instalação do aplicativo no celular ou computador. Se não tiver imagem, o ícone padrão de casinha permanecerá visível.
+                        </p>
                       </div>
-                      <p className="text-xs text-stone-600 max-w-xl leading-relaxed">
-                        Ao ativar este botão, o sistema <strong>oculta a opção Tipo de Pet</strong> (Cães, Gatos, etc.) no cadastro/edição de produtos na área do lojista, <strong>remove os filtros de animais da página principal</strong> e também <strong>oculta o informativo "Ração a Granel por Kg ou Reais"</strong> em todos os modos de visualização (celular e computador).
-                      </p>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => setFormSettings({ ...formSettings, hidePetFilters: !formSettings.hidePetFilters })}
-                      className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 transition-all shrink-0 cursor-pointer shadow-sm active:scale-95 ${
-                        formSettings.hidePetFilters
-                          ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-600/20'
-                          : 'bg-white hover:bg-stone-100 text-stone-700 border border-stone-300'
-                      }`}
-                    >
-                      {formSettings.hidePetFilters ? (
-                        <>
-                          <EyeOff className="w-4 h-4" />
-                          <span>Ocultado (Ativo)</span>
-                        </>
-                      ) : (
-                        <>
-                          <Eye className="w-4 h-4 text-stone-500" />
-                          <span>Visível (Padrão)</span>
-                        </>
+                    {/* Pré-visualização Idêntica ao Cabeçalho */}
+                    <div className="p-3 bg-white rounded-xl border border-stone-200 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-600/20 shrink-0 overflow-hidden">
+                          {formSettings.logoUrl ? (
+                            <img
+                              src={formSettings.logoUrl}
+                              alt="Pré-visualização da Logo"
+                              className="w-full h-full object-contain p-1 rounded-2xl bg-white"
+                              onError={(e) => {
+                                (e.target as HTMLElement).style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <Store className="w-6 h-6" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-extrabold text-sm sm:text-base text-stone-900 truncate">
+                            {formSettings.storeName || 'Casa do Criador'}
+                          </div>
+                          <div className="text-[11px] text-stone-500 truncate">
+                            {formSettings.logoUrl
+                              ? '✓ Imagem personalizada (substituindo o ícone casinha)'
+                              : 'Ícone padrão de casinha ativo'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {formSettings.logoUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setFormSettings({ ...formSettings, logoUrl: '' })}
+                          className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl border border-rose-200 flex items-center gap-1 transition-colors shrink-0 cursor-pointer"
+                          title="Remover logo e voltar à casinha padrão"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Remover</span>
+                        </button>
                       )}
-                    </button>
+                    </div>
+
+                    {/* Controles de Upload de Arquivo e Link */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      {/* Upload de arquivo direto */}
+                      <div>
+                        <label className="block text-xs font-bold text-stone-700 mb-1">
+                          1. Enviar arquivo da logo (.ico ou imagem):
+                        </label>
+                        <input
+                          ref={logoFileInputRef}
+                          type="file"
+                          accept=".ico,image/x-icon,image/vnd.microsoft.icon,image/png,image/jpeg,image/webp,image/svg+xml"
+                          onChange={handleLogoFileUpload}
+                          className="hidden"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => logoFileInputRef.current?.click()}
+                          className="w-full py-2.5 px-3 rounded-xl border border-dashed border-blue-400 bg-blue-50/60 hover:bg-blue-100/70 text-blue-700 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer"
+                        >
+                          <Upload className="w-4 h-4 text-blue-600" />
+                          <span>Escolher arquivo .ico ou imagem</span>
+                        </button>
+                        <p className="text-[10px] text-stone-500 mt-1">
+                          Recomendado: formato <strong>.ico</strong> ou <strong>.png</strong> quadrado (ex: 192x192 ou 512x512).
+                        </p>
+                      </div>
+
+                      {/* Ou colar link / URL */}
+                      <div>
+                        <label className="block text-xs font-bold text-stone-700 mb-1">
+                          2. Ou cole o link/URL da imagem:
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="https://.../logo.ico"
+                          value={formSettings.logoUrl || ''}
+                          onChange={(e) => setFormSettings({ ...formSettings, logoUrl: e.target.value })}
+                          className="w-full px-3 py-2.5 rounded-xl border border-stone-300 text-xs font-mono bg-white text-stone-800 outline-none focus:border-blue-500"
+                        />
+                        <p className="text-[10px] text-stone-500 mt-1">
+                          Pode ser link direto na web ou arquivo local convertido.
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Store Name & WhatsApp */}
@@ -1751,158 +1703,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
               )}
 
-              {/* TAB 6: BANCO DE DADOS (FIREBASE) */}
-              {activeTab === 'database' && (
-                <div className="space-y-5">
-                  {/* Banner Informativo do Banco Conectado */}
-                  <div className="p-4 bg-stone-50 border border-stone-200 rounded-2xl space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-extrabold text-stone-800 flex items-center gap-1.5">
-                        <Database className="w-4 h-4 text-blue-600" />
-                        <span>Banco de Dados Conectado no Momento:</span>
-                      </span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase ${
-                        hasCustomDb ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-blue-100 text-blue-800 border border-blue-200'
-                      }`}>
-                        {hasCustomDb ? '✓ Banco Próprio Personalizado' : 'Banco Inicial da Loja'}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
-                      <div className="bg-white p-2.5 rounded-xl border border-stone-200">
-                        <span className="text-[10px] text-stone-400 block font-bold">PROJECT ID</span>
-                        <span className="font-mono font-bold text-stone-800 truncate block">{currentConfig.projectId}</span>
-                      </div>
-                      <div className="bg-white p-2.5 rounded-xl border border-stone-200">
-                        <span className="text-[10px] text-stone-400 block font-bold">FIRESTORE DATABASE ID</span>
-                        <span className="font-mono font-bold text-stone-800 truncate block">
-                          {currentConfig.firestoreDatabaseId || '(default)'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Instruções e Campo de Inserção */}
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="block text-xs font-bold text-stone-800 flex items-center gap-1.5">
-                        <span>Cole abaixo os dados do novo Banco de Dados (Firebase):</span>
-                      </label>
-                      <button
-                        type="button"
-                        onClick={handleFillSampleDb}
-                        className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
-                      >
-                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                        <span>Inserir exemplo (lojabase1-9a4d4)</span>
-                      </button>
-                    </div>
-                    <p className="text-[11px] text-stone-500">
-                      Você pode colar diretamente o objeto JavaScript ou JSON enviado. O sistema converterá automaticamente para a estrutura de <strong>firebase-applet-config.json</strong>.
-                    </p>
-
-                    <textarea
-                      rows={6}
-                      value={dbInputText}
-                      onChange={(e) => handleDbInputChange(e.target.value)}
-                      placeholder={`Cole aqui no formato:\n{\n  apiKey: "AIzaSy...",\n  authDomain: "lojabase1-9a4d4.firebaseapp.com",\n  projectId: "lojabase1-9a4d4",\n  storageBucket: "lojabase1-9a4d4.firebasestorage.app",\n  messagingSenderId: "1094336366479",\n  appId: "1:1094336366479:web:f7acb05482ccf71707adfa",\n  measurementId: "G-9L3Z7GYPQD"\n};`}
-                      className="w-full p-3 rounded-xl border border-stone-300 font-mono text-xs bg-white text-stone-900 outline-none focus:border-blue-500"
-                    />
-                  </div>
-
-                  {/* Notificação de Erro */}
-                  {parseError && (
-                    <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl flex items-center gap-2 animate-in fade-in">
-                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                      <span>{parseError}</span>
-                    </div>
-                  )}
-
-                  {/* Notificação de Sucesso */}
-                  {dbSuccessMsg && (
-                    <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-bold rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 animate-in fade-in">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>{dbSuccessMsg}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => window.location.reload()}
-                        className="px-3 py-1 bg-emerald-700 text-white rounded-lg text-xs font-bold shrink-0 hover:bg-emerald-800 cursor-pointer"
-                      >
-                        Recarregar Loja Agora
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Pré-visualização da Conversão para firebase-applet-config.json */}
-                  {parsedConfig && formattedJsonOutput && (
-                    <div className="space-y-2 p-3.5 bg-stone-900 text-white rounded-2xl border border-stone-800 animate-in fade-in">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold">
-                          <Check className="w-4 h-4" />
-                          <span>Convertido com Sucesso para firebase-applet-config.json:</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={handleCopyDbJson}
-                            className="text-[11px] bg-stone-800 hover:bg-stone-700 text-stone-200 px-2.5 py-1 rounded-lg flex items-center gap-1 font-semibold transition-colors cursor-pointer"
-                          >
-                            {copiedDbJson ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                            <span>{copiedDbJson ? 'Copiado!' : 'Copiar JSON'}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleDownloadDbJson}
-                            className="text-[11px] bg-stone-800 hover:bg-stone-700 text-stone-200 px-2.5 py-1 rounded-lg flex items-center gap-1 font-semibold transition-colors cursor-pointer"
-                          >
-                            <Download className="w-3 h-3" />
-                            <span>Baixar Arquivo</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      <pre className="font-mono text-[11px] leading-relaxed text-stone-300 bg-stone-950 p-3 rounded-xl overflow-x-auto max-h-48 border border-stone-800">
-                        {formattedJsonOutput}
-                      </pre>
-                    </div>
-                  )}
-
-                  {/* Botões de Ação */}
-                  <div className="space-y-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={handleSaveDatabaseConfig}
-                      disabled={!parsedConfig || isSavingDb}
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-3.5 px-4 rounded-2xl text-sm flex items-center justify-center gap-2 shadow-lg shadow-blue-700/25 active:scale-98 transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
-                    >
-                      {isSavingDb ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>Atualizando Arquivo e Conexão...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Save className="w-4 h-4" />
-                          <span>Salvar no Arquivo firebase-applet-config.json & Ativar</span>
-                        </>
-                      )}
-                    </button>
-
-                    {hasCustomDb && (
-                      <button
-                        type="button"
-                        onClick={handleRestoreDefaultDatabase}
-                        className="w-full bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5 text-stone-500" />
-                        <span>Restaurar Banco de Dados Padrão Original</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
+              {/* End of tabs */}
 
             </div>
           </div>

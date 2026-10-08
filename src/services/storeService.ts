@@ -428,6 +428,16 @@ export async function removeCoupon(couponId: string): Promise<boolean> {
 // Settings
 const settingsListeners = new Set<(settings: StoreSettings) => void>();
 
+export function getStoredSettings(): StoreSettings {
+  try {
+    const cached = localStorage.getItem(LOCAL_SETTINGS_KEY);
+    if (cached) {
+      return { ...DEFAULT_SETTINGS, ...JSON.parse(cached) };
+    }
+  } catch {}
+  return DEFAULT_SETTINGS;
+}
+
 export function getStoredAdminPassword(): string {
   try {
     const cached = localStorage.getItem(LOCAL_SETTINGS_KEY);

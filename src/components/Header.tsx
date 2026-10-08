@@ -1,14 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Store, 
   Clock, 
   ShoppingCart, 
-  MessageCircle, 
   ShieldCheck, 
   MapPin, 
   ChevronDown,
   X
 } from 'lucide-react';
+import { WhatsAppIcon } from './WhatsAppIcon';
 import { StoreSettings } from '../types';
 import { StoreOpenStatus } from '../services/storeService';
 
@@ -28,6 +28,11 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAdmin,
 }) => {
   const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [logoError, setLogoError] = useState(false);
+
+  useEffect(() => {
+    setLogoError(false);
+  }, [settings.logoUrl]);
 
   const cleanPhone = settings.whatsappNumber.replace(/\D/g, '');
   const directChatUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(
@@ -64,8 +69,17 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-3">
           {/* Logo & Store Title */}
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-600/20 shrink-0">
-              <Store className="w-6 h-6" />
+            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-600/20 shrink-0 overflow-hidden">
+              {settings.logoUrl && !logoError ? (
+                <img
+                  src={settings.logoUrl}
+                  alt={settings.storeName}
+                  className="w-full h-full object-contain p-1 rounded-2xl bg-white"
+                  onError={() => setLogoError(true)}
+                />
+              ) : (
+                <Store className="w-6 h-6" />
+              )}
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -102,9 +116,9 @@ export const Header: React.FC<HeaderProps> = ({
               href={directChatUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden lg:inline-flex items-center gap-2 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 px-3 py-2 rounded-xl text-xs font-bold transition-all shadow-sm"
+              className="hidden lg:inline-flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-2 rounded-xl text-xs font-bold transition-all shadow-xs"
             >
-              <MessageCircle className="w-4 h-4 text-blue-600" />
+              <WhatsAppIcon className="w-4 h-4 fill-emerald-600" />
               <span>Fale Conosco</span>
             </a>
 

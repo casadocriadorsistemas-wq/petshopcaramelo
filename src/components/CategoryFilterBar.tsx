@@ -65,7 +65,7 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" />
             <input
               type="text"
-              placeholder="Buscar rações, petiscos, medicamentos..."
+              placeholder={hidePetFilters ? "Pesquisar produtos..." : "Buscar rações, petiscos, medicamentos..."}
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
               className="w-full pl-10 pr-9 py-2 rounded-xl bg-stone-100/80 hover:bg-stone-100 focus:bg-white border border-stone-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-sm text-stone-800 outline-none transition-all placeholder:text-stone-400"

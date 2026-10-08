@@ -9,7 +9,9 @@ import {
   AlertCircle,
   Truck,
   Sparkles,
-  Info
+  Info,
+  Plus,
+  Minus
 } from 'lucide-react';
 import { CartItem, Coupon, StoreSettings } from '../types';
 import { StoreOpenStatus } from '../services/storeService';
@@ -225,7 +227,34 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
                   {/* Quantity & Item Total */}
                   <div className="flex items-center justify-between mt-2 pt-2 border-t border-stone-100">
-                    <span className="text-xs text-stone-400">Total do item:</span>
+                    {item.type === 'unit' || item.type === 'bag' ? (
+                      <div className="flex items-center gap-1.5 bg-stone-100 rounded-xl p-0.5 border border-stone-200/90 shadow-2xs">
+                        <button
+                          type="button"
+                          onClick={() => onUpdateQuantity(item.cartItemId, Math.max(1, item.quantity - 1))}
+                          className="w-6 h-6 flex items-center justify-center rounded-lg bg-white hover:bg-stone-200 text-stone-700 active:scale-90 font-bold transition-all shadow-2xs"
+                          title="Diminuir quantidade"
+                          aria-label="Diminuir quantidade"
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <span className="w-6 text-center font-black text-xs text-stone-900 select-none">
+                          {item.quantity}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onUpdateQuantity(item.cartItemId, item.quantity + 1)}
+                          className="w-6 h-6 flex items-center justify-center rounded-lg bg-white hover:bg-stone-200 text-stone-700 active:scale-90 font-bold transition-all shadow-2xs"
+                          title="Aumentar quantidade"
+                          aria-label="Aumentar quantidade"
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-stone-400">Total do item:</span>
+                    )}
+
                     <span className="font-black text-stone-900 text-sm">
                       R$ {item.totalPrice.toFixed(2).replace('.', ',')}
                     </span>
